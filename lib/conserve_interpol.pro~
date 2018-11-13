@@ -1,0 +1,171 @@
+pro normalize_model_simple,modelname,norm_model_path
+                                ;This program takes a model spectrum
+                                ;which has a clear continuum, and
+                                ;continuum normalizes it using the
+                                ;top-envelope. The fewer lines and the
+                                ;smoother the continuum is, the better
+                                ;it works.
+                                ;It simply works by dividing the model
+                                ;into bins, taking the maximum in each
+                                ;bin and interpolating that.
+
+  minwl=550
+  maxwl=700
+  binsize=0.5;nm
+  stop
+  a=get_model(modelname)
+  sel=where(a[*,0] ge minwl and a[*,0] lt maxwl)
+  wl=a[*,0]
+  fx=a[*,1]
+ 
+  cgplot,wl[sel],fx[sel],/yno,color='red2';,xrange=[580,590]
+  
+  l=minwl
+  fx_c=[]                          ;continuum flux points
+  wl_c=[]
+  while l lt maxwl do begin 
+     binsel=where(wl ge l and wl lt l+binsize)
+     fx_c=[fx_c,max(fx[binsel])]
+     wl_c=[wl_c,wl[binsel[!C]]]
+     l+=binsize
+  endwhile
+
+  cgplot,wl_c,fx_c,/overplot,psym=1,color='red',thick=3
+
+  px_scale=(float(maxwl)-minwl)/n_elements(sel)
+  fx_c_i=smooth(interpol(fx_c,wl_c,wl),binsize/10.0/px_scale,/edge_truncate)
+  cgplot,wl,fx_c_i,/overplot,color='blue'
+  
+  writefits,norm_model_path,[[wl[sel]],[fx[sel]/fx_c_i[sel]]]
+  
+end
+
+
+
+
+
+function ladfit_continuum,wl,fx,binsize,maxfrac
+                                ;Assuming that the continuum is flat
+                                ;but slanted, this function does
+                                ;ladfit through the top envelope. It
+                                ;works for noisy data because you set
+                                ;the maxfrac keyword, which takes the
+                                ;average of the N% maximum points in
+                                ;each bin. LADfit is not very
+                                ;sensitive to outliers, meaning that
+                                ;it owrks even if a few bins are in a
+                                ;deep stellar (sodium) line.
+  ;binsize=0.5;nm
+  l=min(wl)
+  fx_c=[]                          ;continuum flux points
+  wl_c=[]
+  while l lt max(wl)-binsize do begin 
+     binsel=where(wl ge l and wl lt l+binsize)
+     fx_sel=selmax(fx[binsel],maxfrac)
+     fluxpoint=mean(fx[binsel[fx_sel]])
+     wlpoint=mean(wl[binsel[fx_sel]])
+     
+     fx_c=[fx_c,fluxpoint]
+     wl_c=[wl_c,wlpoint]
+     l+=binsize
+  endwhile
+  fit=ladfit(wl_c,fx_c)
+
+  ;cgplot,wl,fx
+  ;cgplot,wl_c,fx_c,/overplot,color='red',psym=1,thick=3
+  ;cgplot,wl,poly(wl,fit),/overplot,color='sienna',thick=2
+  return,poly(wl,fit)
+
+end
+
+
+function polyfit_continuum,wl,fx,binsize,maxfrac,degree,diag=diag
+  ;binsize=0.5;nm
+  l=min(wl)
+  fx_c=[]                          ;continuum flux points
+  wl_c=[]
+
+  if keyword_set(diag) then cgplot,wl,fx,/yno,xs=1
+  while l lt max(wl)-binsize do begin
+     if keyword_set(diag) then cgplot,wl,fx,/yno,xs=1    
+     binsel=where(wl ge l and wl lt l+binsize)
+     fx_sel=selmax(fx[binsel],maxfrac)
+     fluxpoint=mean(fx[binsel[fx_sel]])
+     wlpoint=mean(wl[binsel[fx_sel]])
+     
+     fx_c=[fx_c,fluxpoint]
+     wl_c=[wl_c,wlpoint]
+     l+=binsize
+     if keyword_set(diag) then begin
+        cgplot,wl[binsel],fx[binsel],/overplot,color='red'
+        cgplot,wl_c,fx_c,/overplot,color='grn5',psym=1,thick=2
+        wait,0.2
+     endif
+     
+  endwhile
+  fit=robust_poly_fit(wl_c,fx_c,degree,/double)
+  ;cgplot,wl,poly(wl,fit),/overplot,color='goldenrod'
+  ;wait,3
+  ;stop
+     return,poly(wl,fit)
+end
+
+
+function gaussfit_continuum,wl,fx,binsize,maxfrac,degree
+  ;binsize=0.5;nm
+  l=min(wl)
+  fx_c=[]                          ;continuum flux points
+  wl_c=[]
+  while l lt max(wl)-binsize do begin 
+     binsel=where(wl ge l and wl lt l+binsize)
+     fx_sel=selmax(fx[binsel],maxfrac)
+     fluxpoint=mean(fx[binsel[fx_sel]])
+     wlpoint=mean(wl[binsel[fx_sel]])
+     
+     fx_c=[fx_c,fluxpoint]
+     wl_c=[wl_c,wlpoint]
+     l+=binsize
+  endwhile
+
+  void=mpfitpeak(wl_c,fx_c,fit,nterms=5,/double)
+  ;cgplot,wl,fx
+  ;cgplot,wl_c,fx_c,/overplot,color='red',psym=1,thick=3
+  ;cgplot,wl,polygauss(wl,fit),/overplot,color='sienna',thick=2
+  return,fit
+end
+
+function polygauss,wl,params
+  nt=n_elements(params)
+  y=gaussian(wl,params[0:2])
+  if nt gt 3 then y=y+poly(wl,params[3:nt-1])
+  return,y
+end
+
+  
+function simple_fit_continuum,wl,fx,binsize,maxfrac,diag=diag
+  ;binsize=0.5;nm
+  l=min(wl)
+  fx_c=[]                          ;continuum flux points
+  wl_c=[]
+  while l lt max(wl)-binsize do begin 
+     binsel=where(wl ge l and wl lt l+binsize)
+     fx_sel=selmax(fx[binsel],maxfrac)
+     fluxpoint=mean(fx[binsel[fx_sel]])
+     wlpoint=mean(wl[binsel[fx_sel]])
+     
+     fx_c=[fx_c,fluxpoint]
+     wl_c=[wl_c,wlpoint]
+     l+=binsize
+  endwhile
+  px_scale=(float(max(wl))-min(wl))/n_elements(wl)
+  fx_c_i=smooth(interpol(fx_c[1:-2],wl_c[1:-2],wl),binsize/10.0/px_scale,/edge_truncate);Ignore left and rightmost bins.
+
+  if keyword_set(diag) then begin 
+     cgplot,wl,fx
+     cgplot,wl_c,fx_c,/overplot,color='red',psym=1,thick=3
+     cgplot,wl,fx_c_i,/overplot,color='sienna',thick=2
+     stop
+  endif
+  
+  return,fx_c_i
+end

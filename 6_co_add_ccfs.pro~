@@ -1,0 +1,90 @@
+pro co_add_ccfs,dataset,modelname,ccv=ccv
+                                ;This program takes the CCF stacks of
+                                ;the injected and non-injected data,
+                                ;and collapses them into a 1D CCF by
+                                ;weighing according to the strength of
+                                ;the retrieved signal. This only works
+                                ;in the absence of SYSREM.
+
+                                ;TO DO: See whether its better to weigh by SNR or SNR^2.0.
+  
+  
+
+  
+
+  inpath='output/'+dataset+'/stacking/'+modelname+'/'
+  ccf_stack_c=readfits(inpath+'ccf_stack_unsk.fits');Read the unskewed ones to be able to co_add SNRS without needing to know the injected velocity. Lazy......
+  ccf_stack_i=readfits(inpath+'ccf_stack_unsk_injected.fits')
+  ccf_stack_c_straight=readfits(inpath+'ccf_stack.fits')  
+  ccf_stack_i_straight=readfits(inpath+'ccf_stack_injected.fits')
+
+  RV=readfits(inpath+'/RV.fits')
+  RVsys=paramget('vsys','data/'+dataset);...... because I need to know that anyway.
+  if total(size(ccf_stack_c)) ne total(size(ccf_stack_i)) then begin
+     print,'CCF stacks do not have the same size. This could be the result of running xcor or stack_ccf with different parameters for the injected and non-injected case. Check these and rerun.'
+     stop
+     return
+  endif
+  
+  n_orders=n_elements(ccf_stack_c[0,0,*])
+  n_exp=n_elements(ccf_stack_c[0,*,0])
+  injected_rv=calctimes('data/'+dataset)
+  signals=make_array(n_orders,n_exp)
+  noises=signals*0.0
+  diff=ccf_stack_i-ccf_stack_c
+
+  nsel=where(finite(diff) ne 1)
+  diff[nsel]=0.0
+
+  
+  for i=0,n_orders-1,1 do begin
+     for j=0,n_exp-1,1 do begin
+        void=findgen(n_elements(diff[*,j,i]))
+        fsel=where(finite(ccf_stack_c[*,j,i]) and abs(RV) gt 110)
+        isel=where(RV gt -20.0+RVsys and RV lt 20.0+RVsys)
+        signals[i,j]=max(diff[isel,j,i])
+        noises[i,j]=stddev(ccf_stack_c[fsel,j,i])
+        ;cgplot,RV,diff[*,j,i],xrange=[-300,300],xs=1
+        ;cgplot,RV[fsel],diff[fsel,j,i],/overplot,color='red'
+        ;cgplot,RV[isel],diff[isel,j,i],/overplot,color='blu4'
+        ;print,'order '+trim(i)+' exp '+trim(j)
+        
+        ;if i eq 24 and j eq 58 then stop
+     endfor
+  endfor
+  snr2=(signals/noises)^2.0
+  
+  
+  profile=calctimes('data/'+dataset,/transit)
+  transitmask=rebin(reform(profile,1,n_exp),n_orders,n_exp)
+  snr2[where(transitmask eq 0)]=0.0; force weights to zero wherever the signal is not injected.
+
+  order_weights=mean(snr2[*,where(profile eq 1)],dimension=2,/nan)
+  snr2_norm=snr2/rebin(reform(order_weights,n_orders,1),n_orders,n_exp)
+                                ;Because this is normalized I want to
+                                ;be robust to outliers so I take the
+                                ;median:
+  exp_weights=median(snr2_norm,dimension=1)
+
+                                ;Normalize to mean if computing the
+                                ;CCV, in which case the individual
+                                ;orders should be summed to complete
+                                ;the CCV. Otherwise the individual
+                                ;CCFs are already normalized and they
+                                ;may be averaged.
+  if keyword_set(ccv) then order_weights/=mean(order_weights,/nan) else order_weights/=total(order_weights,/nan)
+  
+  exp_weights/=total(exp_weights,/nan)
+
+  w_stack=rebin(reform(order_weights,1,1,n_orders),n_elements(RV),n_exp,n_orders)
+;Here I need to put the correction factor to weigh according to the
+;sum in the template...
+  if n_orders eq 1 then ccf_plate_cw=ccf_stack_c_straight*w_stack else ccf_plate_cw=mean(ccf_stack_c_straight*w_stack,dim=3,/nan);The un-unskewed weighted stacks.
+    if n_orders eq 1 then ccf_plate_iw=ccf_stack_i_straight*w_stack else ccf_plate_iw=mean(ccf_stack_i_straight*w_stack,dim=3,/nan)
+
+  writefits,inpath+'/weights_orders.fits',order_weights
+  writefits,inpath+'/weights_exp.fits',exp_weights;These are the normalized weights.
+  writefits,inpath+'/CCF_stacked_2D_c.fits',ccf_plate_cw;Meaning: only order-by-order weighting.
+  writefits,inpath+'/CCF_stacked_2D_i.fits',ccf_plate_iw
+
+end

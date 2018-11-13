@@ -1,0 +1,28 @@
+pro write_ccf_matrix,matrix,RV,name,sum
+  outpath=name+'.fits'
+  outpath_sum=name+'_tsum.fits'
+  if file_test(outpath_sum) eq 1 then file_delete,outpath_sum
+  mwrfits,matrix,outpath,head,/create
+  if n_elements(sum) gt 1 then mwrfits,sun,outpath_sum,head2,/create
+
+  
+  size=size(matrix)
+
+  sxaddpar,head,'NAXIS1',size[1]
+  sxaddpar,head,'NAXIS2',size[2]
+  
+  sxaddpar,head,'CTYPE1','Exposures'
+  sxaddpar,head,'CRPIX1',1
+  sxaddpar,head,'CRVAL1',1
+  sxaddpar,head,'CDELT1',1
+  sxaddpar,head,'CUNIT1','EXP'
+
+  
+  sxaddpar,head,'CTYPE2','RV'
+  sxaddpar,head,'CRPIX2',1
+  sxaddpar,head,'CRVAL2',min(RV)
+  sxaddpar,head,'CDELT2',abs(RV[1]-RV[0])
+  sxaddpar,head,'CUNIT2','km/s'
+  modfits,outpath,0,head
+
+  end

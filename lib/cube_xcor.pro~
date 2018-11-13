@@ -1,0 +1,79 @@
+function xcor2D,wld,order,wlm,fxm,dRV,RVrange,nan=nan,ccv=ccv,verticalmask=verticalmask
+  if keyword_set(ccv) then covariance=1 else covariance=0
+  c=299792d0                    ;km/s
+  v=dindgen(2*RVrange/dRV+1)*dRV-RVrange
+  shift=1.00+v/c
+  
+  size=size(order)
+  nexp=size[2]
+  
+  CCF_out=make_array(n_elements(v),nexp)*0.0
+  ;CCF_out2=CCF_out*1.0
+  finite_mask=order*0.0
+  finite_mask[where(finite(order))]=1.0
+  if keyword_set(verticalmask) ne 1 then verticalmask=findgen(nexp)*0.0+1.0
+  tsum=v*0.0
+
+  order_n=order*1.0
+  for i=0,nexp-1,1 do order_n[*,i]=order[*,i]-mean(order[*,i],/nan)
+
+  fxm_i_out=interpol(fxm,wlm,wld)
+  if keyword_set(nan) then begin
+     for vi=0,n_elements(v)-1,1 do begin
+        
+        WLMS=wlm*shift[vi]
+        fxm_i=interpol(fxm,WLMS,wld)
+        ;fxm_i[where(fxm_i lt 0.0)]=-0.02
+        tsum[vi]=total(fxm_i)
+        ;if covariance eq 1 then fxm_i=fxm_i*n_elements(wld)
+        
+        for i=0,nexp-1,1 do begin
+           if verticalmask[i] eq 1 then begin
+              sel=where(finite(order[*,i]))
+              if covariance eq 1 then CCF_out[vi,i]=total(fxm_i[sel]*order_n[sel,i]) else CCF_out[vi,i]=c_correlate(fxm_i[sel],order_n[sel,i],0.0)
+
+              
+                                ;RIGHT, SO WHEN I DIVIDE BY THE
+                                ;INTEGRAL OF THE INTERPOLATED
+                                ;TEMPLATE, I DO GET THE CORRECT
+                                ;LINESTRENGTH OUT. THIS MEANS THAT THE
+                                ;INTEGRAL OF THE TEMPLATE CHANGES A
+                                ;LOT AS A FUNCTION OF RV. SO IF I WANT
+                                ;TO PROPAGATE THE TSUM THROUGH, I NEED
+                                ;TO SAVE IT AS A FUNCTION OF RV, AND
+                                ;THEN SUM THEM FOR EACH CCF-(RV)COLUMN
+                                ;SEPARATELY.
+              
+              ;CCF_out2[vi,i]=c_correlate(fxm_i[sel],order[sel,i],0.0,covariance=covariance)
+           endif
+           
+        endfor
+        ;print,total(fxm_i)
+       ;if v[vi] eq 0 then stop
+
+        
+     endfor
+  endif else begin
+       for vi=0,n_elements(v)-1,1 do begin
+          WLMS=wlm*shift[vi]
+          fxm_i=interpol(fxm,WLMS,wld)
+          tsum[vi]=total(fxm_i)
+
+          ;if covariance eq 1 then fxm_i=fxm_i*n_elements(wld) ;HERE IT IS!! See log page after april 16 on derivation. This is correct dige.
+
+          
+          for i=0,nexp-1,1 do begin
+             if verticalmask[i] eq 1 then begin
+                if covariance eq 1 then CCF_out[vi,i]=total(fxm_i*order_n[*,i]) else CCF_out[vi,i]=c_correlate(fxm_i,order_n[*,i],0.0)
+             endif
+          endfor
+          
+       endfor
+    endelse
+  
+
+  if covariance eq 1 then template_sum=tsum*1.0 else template_sum=0.0
+  if covariance eq 1 then CCF_out/=rebin(reform(abs(tsum),n_elements(v),1),n_elements(v),nexp)
+  st_out=create_struct('CCF_matrix',CCF_out,'RV',v,'template_sum',template_sum,'Xcor_template',fxm_i_out)
+  return,st_out  
+end

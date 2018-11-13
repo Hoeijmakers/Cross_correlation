@@ -1,0 +1,560 @@
+pro clean_data,dataset,n,telcor=telcor,npass=npass,w=w,outtransit=outtransit
+  if keyword_set(npass) ne 1 then npass=0
+  if keyword_set(w) ne 1 then w=75.0 ;px
+  c_thresh=5.0
+  snrthresh=2.0
+  
+  inpath='data/'+dataset+'/order_'+trim(n)+'.fits'
+  inpath_ins='output/'+dataset+'/model_injection/order_'+trim(n)+'.fits'
+  order=double(readfits(inpath,/silent))
+  order_ins=readfits(inpath_ins,/silent)
+  inpathwl='data/'+dataset+'/wave_'+trim(n)+'.fits'
+  wld=readfits(inpathwl,/silent)
+
+  if keyword_set(telcor) then begin
+     print,'Telluric correction in order '+trim(n)
+     telmodel=fit_tellurics(wld,order,'data/'+dataset)
+     telmodel_ins=fit_tellurics(wld,order_ins,'data/'+dataset)
+     ;writefits,'test_tel_res.fits',[[[clean_order(order,npass,w,c_thresh)]],[[clean_order(order/telmodel,npass,w,c_thresh)]]]
+  endif else begin
+       telmodel=1
+       telmodel_ins=1
+    endelse
+
+  mask=0.0
+  if keyword_set(outtransit) then begin
+     profile=calctimes('data/'+dataset,/transit)
+     mask=profile*0.0
+     mask[where(profile eq 0.0)]=1.0
+  endif
+
+
+
+                                ;The following is to construct an
+                                ;outlier mask for outlier rejection,
+                                ;making sure that the same mask is
+                                ;used for both the injected and the
+                                ;non-injected order.
+
+order_old=order*1.0
+
+outlier_mask=construct_outlier_mask(order/telmodel,w,c_thresh,sigma=sigma_array)
+
+  outlier_sel=where(outlier_mask eq 1)
+  ;outlier_sel=where(findgen(100) eq 1000)
+  if outlier_sel ne [-1] then begin
+     order[outlier_sel]=!values.f_nan
+     order_ins[outlier_sel]=!values.f_nan
+     print,'   '+trim(n_elements(outlier_sel))+' outliers removed.'
+  endif
+
+  
+  ;writefits,'test.fits',[[[order_old]],[[order_old/telmodel]],[[order/telmodel]]]
+
+  
+
+  ;order_clean=clean_order(order/telmodel,npass,w,c_thresh,mask=mask)
+  ;order_ins_clean=clean_order(order_ins/telmodel_ins,npass,w,c_thresh,mask=mask,/inj)
+  orders_clean=clean_both_orders(order/telmodel,order_ins/telmodel_ins,npass,w,c_thresh,mask=mask,snrthresh=snrthresh)
+
+
+  
+  outpath='output/'+dataset+'/cleaning/'
+  file_mkdir,outpath
+  writefits,outpath+'order_'+trim(n)+'.fits',orders_clean[*,*,0]
+  writefits,outpath+'order_'+trim(n)+'_injected.fits',orders_clean[*,*,1]
+
+  if paramget('mask','data/'+dataset) eq 1 then begin
+     print,'...Masking out customly defined bad regions'
+     readcol,'data/'+dataset+'/mask',onum,mmin,mmax,format='(I,I,I)'
+     regions_i=where(onum eq n)
+     mask=orders_clean[*,*,0]*0.0
+     if regions_i ne [-1] then begin
+        for i=0,n_elements(regions_i)-1,1 do begin
+           if mmin[regions_i[i]] lt 0 then minpx=0.0 else minpx=mmin[regions_i[i]]
+           if mmax[regions_i[i]] gt n_elements(orders_clean[*,0,0])-1 then maxpx=n_elements(orders_clean[*,0,0])-1 else maxpx=mmax[regions_i[i]]
+           mask[minpx:maxpx,*]=1.0
+        endfor
+        
+        endif else print,'......No masked regions in order '+trim(n)
+     writefits,outpath+'order_'+trim(n)+'_mask.fits',mask
+  endif
+  
+     
+  
+                                ;writefits,'test.fits',[[[order_clean]],[[order_ins_clean]],[[order_ins_clean-order_clean]]]
+  
+end
+
+
+
+
+
+
+
+function clean_both_orders,order,order_i,npass,w,thresh,mask=mask,inj=inj,snrthresh=snrthresh
+                                ;This function cleans a 2-dimensional
+                                ;order using SYSREM, by rejecting
+                                ;outliers and by high-pass filtering.
+                                ;Set snrthresh to some value to cut
+                                ;values that are insanely far away
+                                ;from 1.0. For example, you're
+                                ;not interested in regions that are so
+                                ;noisy that pixels are larger than 2.0
+                                ;or smaller than 0.5. This would
+                                ;mostly happen at dark order-edges.
+  dpx=10
+  npx=n_elements(order[*,0])
+  nexp=n_elements(order[0,*])
+  medianflux=median(order,dimension=1)
+  medianflux_i=median(order_i,dimension=1)
+  
+  order_norm=order/rebin(reform(medianflux,1,nexp),npx,nexp) ;Median flux is normalized out.
+  order_norm_i=order_i/rebin(reform(medianflux_i,1,nexp),npx,nexp) ;Median flux is normalized out.
+  
+ 
+
+  
+  
+  if keyword_set(mask) then begin
+     medianspec=mean(order_norm[*,where(mask eq 1)],dimension=2,/nan) 
+     medianspec_i=mean(order_norm_i[*,where(mask eq 1)],dimension=2,/nan) 
+  endif else begin
+     medianspec=mean(order_norm,dimension=2,/nan)
+     medianspec_i=mean(order_norm_i,dimension=2,/nan)
+  endelse
+  
+  
+  order_clear=order_norm/rebin(reform(medianspec,npx,1),npx,nexp) ;Cleared of the star
+  order_clear_i=order_norm_i/rebin(reform(medianspec_i,npx,1),npx,nexp) ;Cleared of the star
+  
+  order_flat=order_clear*1.0
+  order_flatter=order_flat*0.0
+  order_flat_i=order_clear_i*1.0
+  order_flatter_i=order_flat_i*0.0
+  
+
+                                ;Now comes the cleaning. First: Do a high-pass filter.
+
+  gaussianpsf=psf_gaussian(npixel=npx/2.0,st_dev=w,/normalize,ndimen=1)
+  
+  if w gt 0 then for i=0,nexp-1,1 do order_flat[*,i]=order_clear[*,i]/convol(order_clear[*,i],gaussianpsf,/edge_truncate,/nan,missing=1.0,/normalize) 
+  if w gt 0 then for i=0,nexp-1,1 do order_flat_i[*,i]=order_clear_i[*,i]/convol(order_clear_i[*,i],gaussianpsf,/edge_truncate,/nan,missing=1.0,/normalize) 
+
+
+  
+                                ;Then remove remaining outliers from the result.
+  ;if thresh gt 0 then order_clean=local_outlier_remove(order_flat,thresh,dpx,sigma=sigma_array,/talk) else begin
+  ;   order_clean=order_flat*0.0
+  ;   void=local_outlier_remove(order_flat,5.0,dpx,sigma=sigma_array);Still want to call outlier_remove in order to get the sigma_array.
+                                ;endelse
+
+                                ;THIS IS ONLY DONE ON THE REAL
+                                ;DATA. WE APPLY THE SAME MASK TO THE
+                                ;INJECTED DATA.
+  outlier_mask=construct_outlier_mask(order_flat,w,thresh,sigma=sigma_array)
+  outlier_sel=where(outlier_mask eq 1)
+  order_clean=order_clear*1.0
+  order_clean_i=order_clear_i*1.0  
+  if outlier_sel ne [-1] then begin
+     order_clean[outlier_sel]=!values.f_nan
+     order_clean_i[outlier_sel]=!values.f_nan
+     print,'   ...'+trim(n_elements(outlier_sel))+' additional outliers removed.' 
+  endif
+
+
+  
+  
+                                ;Then, just to be sure, repeat the
+                                ;high-pass filter to remove the
+                                ;influence of cosmics from the initial
+                                ;filter run.
+  
+  if w gt 0 then for i=0,nexp-1,1 do order_flatter[*,i]=order_clean[*,i]/convol(order_clean[*,i],gaussianpsf,/edge_truncate,/nan,missing=1.0,/normalize) else order_flatter=order_clean*1.0
+  if w gt 0 then for i=0,nexp-1,1 do order_flatter_i[*,i]=order_clean_i[*,i]/convol(order_clean_i[*,i],gaussianpsf,/edge_truncate,/nan,missing=1.0,/normalize) else order_flatter_i=order_clean_i*1.0
+                                ;Then perform SYSREM
+
+  ;writefits,'test.fits',[[[order_clear]],[[order_flat]],[[order_clean]],[[order_flatter]]]
+
+  
+
+  if npass eq 0 then begin
+     order_sysrem=order_flatter*1.0
+     order_sysrem_i=order_flatter_i*1.0    
+  endif else begin
+     err=rebin(reform(sigma_array,npx,1),npx,nexp)
+     order_sysrem=fast_sysrem(order_flatter,err,npass)
+     order_sysrem_i=fast_sysrem(order_flatter_i,err,npass)     
+  endelse
+  
+                                ;Finally normalize by the stddev:
+                                ;void=local_outlier_remove(order_sysrem,5.0,dpx,sigma=final_sigma_array)
+                                ;weights=(final_sigma_array^2.0)/mean(final_sigma_array^2.0) ;Normalize the division and take the square
+                                ;order_weighted=(order_sysrem-mean(order_sysrem,/nan))/rebin(reform(weights,npx,1),npx,nexp)+mean(order_sysrem,/nan)
+                                ;diag_out=[[[order]],[[rebin(reform(medianflux,1,nexp),npx,nexp)]],[[order_norm]],[[rebin(reform(medianspec,npx,1),npx,nexp)]],[[order_clear]],[[order_flat]],[[order_clean]],[[order_flatter]],[[order_sysrem]],[[order_weighted]]]
+
+  void=construct_outlier_mask(order_sysrem,w,thresh,sigma=final_sigma_array)
+  void=construct_outlier_mask(order_sysrem_i,w,thresh,sigma=final_sigma_array_i)
+
+  weights_matrix=order*0.0
+  weights_matrix_i=order*0.0  
+  for i=0,nexp-1,1 do weights_matrix[*,i]=(final_sigma_array[*,i]^2.0)/mean(final_sigma_array[*,i]^2.0)
+  for i=0,nexp-1,1 do weights_matrix_i[*,i]=(final_sigma_array_i[*,i]^2.0)/mean(final_sigma_array_i[*,i]^2.0)
+                                ;order_weighted=(order_sysrem-mean(order_sysrem,/nan))/weights_matrix+mean(order_sysrem,/nan)
+                                ;order_weighted_i=(order_sysrem_i-mean(order_sysrem_i,/nan))/weights_matrix_i+mean(order_sysrem_i,/nan)
+  order_weighted=order_sysrem
+  order_weighted_i=order_sysrem_i
+
+  if keyword_set(snrthresh) then begin
+     badsel=where(order_weighted gt 1.0*snrthresh or order_weighted lt 1.0/snrthresh)
+     if badsel ne [-1] then begin
+        order_weighted[badsel]=!values.f_nan
+        order_weighted_i[badsel]=!values.f_nan
+        print,'   ...'+trim(n_elements(badsel))+' remaining extreme outliers removed.'
+     endif
+     
+  endif
+  
+  return,[[[order_weighted]],[[order_weighted_i]]]
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+function clean_order,order,npass,w,thresh,mask=mask,inj=inj
+                                ;This function cleans a 2-dimensional
+                                ;order using SYSREM, by rejecting
+                                ;outliers and by high-pass filtering.
+  dpx=10
+  npx=n_elements(order[*,0])
+  nexp=n_elements(order[0,*])
+  medianflux=median(order,dimension=1)
+  order_norm=order/rebin(reform(medianflux,1,nexp),npx,nexp) ;Median flux is normalized out.
+
+  
+
+  
+                                ;The following was to do outlier
+                                ;removal, but it turned out that for
+                                ;some pixels the resulting outlier
+                                ;mask was different between the
+                                ;injected and the non-injected order,
+                                ;causing huge problems. I therefore
+                                ;moved it outside of this function. (11-08-2018).
+  ;medianprofile=median(order_norm,dimension=2)
+  ;order_norm_flat=order_norm-rebin(reform(medianprofile,npx,1),npx,nexp)
+  ;order_sigma=order*0.0
+  ;outlier_mask=order_sigma*0.0
+  ;for i=0,nexp-1,1 do order_sigma[*,i]=running_stddev(order_norm_flat[*,i],w,localthresh=4.0) ;Compute the local stddev with a conservative cutoff  
+  ;outlier_sel=where(abs(order_norm_flat) gt thresh*order_sigma)
+  ;if outlier_sel ne [-1] then outlier_mask[outlier_sel]=1.0
+  ;order_norm_save=order_norm*1.0
+  ;order_norm[outlier_sel]=!values.f_nan
+  
+
+  
+  
+  if keyword_set(mask) then medianspec=mean(order_norm[*,where(mask eq 1)],dimension=2,/nan) else medianspec=mean(order_norm,dimension=2,/nan)
+ 
+  
+  order_clear=order_norm/rebin(reform(medianspec,npx,1),npx,nexp);Cleared of the star
+  order_flat=order_clear*0.0
+  order_flatter=order_flat*0.0
+
+                                ;Now comes the cleaning. First: Do a high-pass filter.
+
+  gaussianpsf=psf_gaussian(npixel=npx/2.0,st_dev=w,/normalize,ndimen=1)
+  
+  if w gt 0 then for i=0,nexp-1,1 do order_flat[*,i]=order_clear[*,i]/convol(order_clear[*,i],gaussianpsf,/edge_truncate,/nan,missing=1.0) ;order_flat[*,i]=order_clear[*,i]/gauss_smooth(order_clear[*,i],w,/edge_truncate) else order_flat=order_clear*1.0
+
+
+                                ;I THINK I WANT TO TAKE THIS OUTSIDE
+                                ;OF THE CLEANING ROUTINE. IN THE END I
+                                ;WANT TO CONSTRUCT A MASTER-OUTLIER
+                                ;MASK, THAT IS APPLIED TO THE RAWEST
+                                ;OF THE RAW DATA, AND CERTAINLY NOT TO
+                                ;THE INJECTED AND NON-INJECTED DATA
+                                ;INDEPENDENTLY. ON A RELATED NOTE, I
+                                ;WILL WANT TO TRACE THE WEIGHT THAT IS
+                                ;ASSIGNED TO EACH PIXEL IN THE DATA
+                                ;WHEN COMPUTING THE FINAL CCV<---
+                                ;WHICH IS BASICALLY THE SUM OVER A
+                                ;NUMBER OF WEIGHTED PIXELS. THERE ARE
+                                ;THREE SOURCES OF WEIGHTING:
+                                ;-WEIGHTING BY STDDEV (BELOW),
+                                ;WEIGHTING BY INJECTION-RETRIEVAL
+                                ;STRENGTH, AND WEIGHTING BY THE CCV
+                                ;TEMPLATE. THESE ALL NEED TO BE
+                                ;TRACED.
+  
+                                ;Then remove remaining outliers from the result.
+  ;if thresh gt 0 then order_clean=local_outlier_remove(order_flat,thresh,dpx,sigma=sigma_array,/talk) else begin
+  ;   order_clean=order_flat*0.0
+  ;   void=local_outlier_remove(order_flat,5.0,dpx,sigma=sigma_array);Still want to call outlier_remove in order to get the sigma_array.
+  ;endelse
+  outlier_mask=construct_outlier_mask(order_flat,w,thresh,sigma=sigma_array)
+  outlier_sel=where(outlier_mask eq 1)
+  order_clean=order_flat*1.0
+  if outlier_sel ne [-1] then begin
+     order_clean[outlier_sel]=!values.f_nan
+     print,'   ...'+trim(n_elements(outlier_sel))+' additional outliers removed.' 
+  endif    
+                                ;Then, just to be sure, repeat the
+                                ;high-pass filter to remove the
+                                ;influence of cosmics from the initial
+                                ;filter run.
+  if w gt 0 then for i=0,nexp-1,1 do order_flatter[*,i]=order_clean[*,i]/convol(order_clean[*,i],gaussianpsf,/edge_truncate,/nan,missing=1.0) else order_flatter=order_clean*1.0
+
+                                ;Then perform SYSREM
+
+  if npass eq 0 then order_sysrem=order_flatter*1.0 else begin
+     err=rebin(reform(sigma_array,npx,1),npx,nexp)
+     order_sysrem=fast_sysrem(order_flatter,err,npass)
+  endelse
+  
+                                ;Finally normalize by the stddev:
+                                ;void=local_outlier_remove(order_sysrem,5.0,dpx,sigma=final_sigma_array)
+                                ;weights=(final_sigma_array^2.0)/mean(final_sigma_array^2.0) ;Normalize the division and take the square
+                                ;order_weighted=(order_sysrem-mean(order_sysrem,/nan))/rebin(reform(weights,npx,1),npx,nexp)+mean(order_sysrem,/nan)
+                                ;diag_out=[[[order]],[[rebin(reform(medianflux,1,nexp),npx,nexp)]],[[order_norm]],[[rebin(reform(medianspec,npx,1),npx,nexp)]],[[order_clear]],[[order_flat]],[[order_clean]],[[order_flatter]],[[order_sysrem]],[[order_weighted]]]
+
+
+
+  
+  void=construct_outlier_mask(order_sysrem,w,thresh,sigma=final_sigma_array)
+  weights_matrix=order*0.0
+  for i=0,nexp-1,1 do weights_matrix[*,i]=(final_sigma_array[*,i]^2.0)/mean(final_sigma_array[*,i]^2.0)                             
+  order_weighted=(order_sysrem-mean(order_sysrem,/nan))/weights_matrix+mean(order_sysrem,/nan)
+  
+
+  diag_out=[[[order]],[[rebin(reform(medianflux,1,nexp),npx,nexp)]],[[order_norm]],[[rebin(reform(medianspec,npx,1),npx,nexp)]],[[order_clear]],[[order_flat]],[[outlier_mask]],[[order_clean]],[[order_flatter]],[[order_sysrem]],[[final_sigma_array]],[[weights_matrix]],[[order_weighted]]]
+
+  if keyword_set(inj) then  writefits,'test_cleaning_injected.fits',diag_out else writefits,'test_cleaning_pure.fits',diag_out
+  
+  return,order_weighted
+end
+
+
+
+
+function construct_outlier_mask,order,w,thresh,sigma=sigma
+                                ;This function identifies outliers in
+                                ;a 2D spectral order using the running
+                                ;standard deviation in each spectrum,
+                                ;and sets them to NaNs
+
+  if w lt 20 then begin
+     print,'Width is set to '+trim(w)+'.'
+     print,'This code is set to abort when w<20'
+     print,'Increase the width parameter.'
+  endif
+  
+  npx=n_elements(order[*,0])
+  nexp=n_elements(order[0,*])
+  medianflux=median(order,dimension=1)
+  order_norm=order/rebin(reform(medianflux,1,nexp),npx,nexp) ;Median flux is normalized out.
+  medianprofile=mean(order_norm,dimension=2,/nan);This takes out both the star and the blaze. 
+  order_norm_flat=order_norm-rebin(reform(medianprofile,npx,1),npx,nexp)
+  order_sigma=order*0.0
+  outlier_mask=order_sigma*0.0
+  order_norm_really_flat=order_norm*0.0
+  for i=0,nexp-1,1 do begin
+     ;print,i
+     ;if i eq 29 then stop
+     order_norm_really_flat[*,i]=order_norm_flat[*,i]-medsmooth(order_norm_flat[*,i],w)
+     if n_elements(where(finite(order_norm_really_flat[*,i]) ne 1)) gt 0.1*npx then begin
+        print,'Too many Nans. (More than 10%)'
+        stop
+     endif
+     
+                                ;print,'Now entering running_stddev'
+     ;print,i,n_elements(where(order_norm_flat[*,i] eq 0.0)),n_elements(where(order_norm_really_flat[*,i] eq 0.0))
+     order_sigma[*,i]=running_stddev(order_norm_really_flat[*,i],w,localthresh=4.0) ;Compute the local stddev with a conservative outlier cutoff.
+     if min(order_sigma[*,i]) lt 0 then stop
+
+     
+     ;stop
+  endfor
+  
+  outlier_sel=where(abs(order_norm_really_flat) gt thresh*order_sigma)
+  
+  if outlier_sel ne [-1] then outlier_mask[outlier_sel]=1.0
+  sigma=order_sigma*1.0
+  return,outlier_mask
+end
+
+
+
+
+
+
+
+
+
+
+
+function fit_tellurics,wave,order,dp
+  airmass=calctimes(dp,/airmass)  
+  Rd=paramget('data_resolution',dp)*1.0
+  vac_set=paramget('vaccuum',dp)*1.0
+  profile=calctimes(dp,/transit)
+  sel_out=where(profile eq 0)
+  sel_in=where(profile gt 0.5)
+  in_z=mean(airmass[sel_in])    ;in_transit_airmass
+  out_z=mean(airmass[sel_out])  ;out_of_transit_airmass
+  dA=in_z-out_z  
+  c=3e5
+  npx=n_elements(order[*,0])
+  nexp=n_elements(order[0,*])
+  
+  ;Then prep the model
+  model=get_model('sky_norm',resolution=Rm)
+  wlm=model[*,0]
+  fxm=model[*,1]
+
+
+
+  if vac_set eq 0.0 then begin
+     ;Data is not in vaccuum wavelength. Adjusting telluric model.
+     wlm_old=wlm*1.0
+     vactoair,wlm*10.0,wlmv ;Dont ask me why to use vactoair (notairtovac), but this is it according to the ccf (load order 63 to see the oxygen band).
+     wlm=wlmv/10.0
+  endif
+  
+
+    
+  if min(wlm) gt min(wave) or max(wlm) lt max(wave) then begin
+     print,'Telluric model does not fully cover this order.'
+     print,'No correction is applied.'
+     return,1.0
+  endif
+  
+  sigma=resolution_kernel(Rd,Rm,mean(wave))
+  sel=where(wlm ge min(wave) AND wlm le max(wave));To get a local pixel scale
+  pxscale=(max(wlm[sel])-min(wlm[sel]))/n_elements(wlm[sel]) ;model scale nm/px
+  if sigma gt 0.0 then begin
+     fxms=convol(fxm,psf_gaussian(npixel=sigma/pxscale*500.0,st_dev=sigma/pxscale,/normalize,ndimen=1),/edge_truncate) ; GAUSS SMOOTH IN IDL IS DEFUNCT. NEVER USE IT. NEVER NEVER NEVER.
+     print,'Blurring with FWHM='+r_trim(2.355*sigma*c/mean(wave),2)+'km/s  to match spectral resolution ('+r_trim(sigma/pxscale,2)+' model px; '+r_trim(sigma,4)+'nm)'
+  endif
+
+
+
+  ;Order fitting
+  medianflux=mean(order,dimension=1)
+  order_norm=order/rebin(reform(medianflux,1,nexp),npx,nexp)
+
+  meanspec=mean(order_norm,dimension=2)
+
+  order_quickres=abs(order_norm/rebin(reform(meanspec,npx,1),npx,nexp))
+
+
+  ;cgplot,wave,meanspec
+  continuum=simple_fit_continuum(wave,meanspec,0.1,0.4);THIS IS NEEDED BECAUSE THE BLAZE IS NOT SUBTRACTED PROPERLY. IF I CAN FIX THAT, I SHOULD REPLACE THIS WITH A LADFIT INSTEAD.
+  ;cgplot,wave,continuum,color='red',/overplot
+  flatmeanspec=meanspec/continuum
+ 
+  out_transit_spec=mean(order_norm[*,sel_out],dimension=2)
+  in_transit_spec=mean(order_norm[*,sel_in],dimension=2)
+  
+ 
+  order_residuals=order_norm/rebin(reform(out_transit_spec,npx,1),npx,nexp)
+  res=in_transit_spec/out_transit_spec
+
+
+                                ;THE FRICKIN RESIDUALS ARE NOT ALIGNED TO EACHOTHER.....
+                                ;SO I FIRST NEED TO ALIGN
+                                ;ORDER_NORM. HOW CAN I DO THAT IN THE
+                                ;PRESENCE OF STELLAR LINES??
+
+  exprv=[]
+  for i=0,nexp-1,1 do begin
+     spec=order_norm[*,i]/meanspec
+     specn=spec/smooth(spec,200.0,/edge_truncate)
+     c=xcor_rv(wave,specn,wlm,fxms,1.0,50.0)
+     maxccf=max(abs(c[*,1]),maxloc)
+     fit=mpfitpeak(c[maxloc-5:maxloc+5,0],c[maxloc-5:maxloc+5,1],aaa,nterms=3)
+     cgplot,c[*,0],c[*,1],psym=1
+     cgplot,c[*,0],gaussian(c[*,0],aaa),color='red',/overplot
+     cgvline,aaa[1]
+     wait,0.4
+     exprv=[exprv,aaa[1]]
+  endfor
+
+  cgplot,exprv
+  stop 
+
+  flatres=res/smooth(res,200,/edge_truncate) ;Just make sure that the residual has no additional shape...
+  c=xcor_rv(wave,flatres,wlm,fxms,1.0,150.0)
+  maxccf=max(abs(c[*,1]),maxloc)
+  fit=mpfitpeak(c[maxloc-7:maxloc+7,0],c[maxloc-7:maxloc+7,1],aaa,nterms=3)
+  cgplot,c[*,0],c[*,1],psym=1
+  cgplot,c[*,0],gaussian(c[*,0],aaa),color='red',/overplot
+  telrv=aaa[1]
+  if maxccf lt 0.2 then begin
+     print,'Telluric model correlates poorly with residuals. Cancelling telluric correction (returning 1).'
+     return,1
+  endif
+
+  lightspeed=3e5
+
+
+  fxm_i=interpol(fxms,wlm*(1.0+telrv/lightspeed),wave)
+
+  cgplot,wave,res,xrange=[650,652]
+  cgplot,wave,fxm_i,/overplot,color='red'
+
+ 
+  tsel=where(fxm_i lt 0.992)
+  if tsel eq [-1] then begin
+     print,'No telluric lines stronger than 0.8% in this order.'
+     print,'No correction is applied.'
+     return,1.0
+  endif
+    ;print,n_elements(tsel)
+  if n_elements(tsel) lt 65 then begin
+     print,'Too few pixels are occupied by tellurics'
+     print,'No correction is applied.'
+     return,1.0
+  endif
+
+  res=flatres*1.0
+  resfit=ladfit(fxm_i[tsel],res[tsel])
+  fxm_c=poly(fxm_i,resfit)
+  fxm_c=fxm_c/min(fxm_c);renormalize...
+  cgplot,fxm_i[tsel],res[tsel],/yno,psym=1;To see how the fit goes.
+  cgplot,fxm_i[tsel],fxm_c[tsel],/overplot
+  cgplot,wave,fxm_c,/yno ;This is the average in-transit telluric residual. Now I will scale it with airmass:
+ 
+  res_model=rebin(reform(fxm_c,npx,1),npx,nexp)^rebin(reform((airmass-out_z)/dA,1,nexp),npx,nexp);Model of the residuals
+  order_residuals_cor=order_residuals/res_model  
+  ;writefits,'test.fits',[[[order_residuals]],[[order_residuals_cor]],[[res_model]]]
+  ;stop
+  order_norm_equal_airmass=order_residuals_cor*rebin(reform(out_transit_spec,npx,1),npx,nexp)/rebin(reform(continuum,npx,1),npx,nexp)
+  order_norm_equal_airmass_master_spectrum=mean(order_norm_equal_airmass[*,sel_out],dimension=2);So im fitting only out-of-transit spectra.
+  tsel2=where(fxm_i lt 0.992 and order_norm_equal_airmass_master_spectrum gt 0.6)
+  telfit=ladfit(fxm_i[tsel2],order_norm_equal_airmass_master_spectrum[tsel2])
+  cgplot,fxm_i[tsel2],order_norm_equal_airmass_master_spectrum[tsel2],/yno,psym=1
+  fxm_f=poly(fxm_i,telfit)      ;This is the fit of the model to the spectrum itself, but only outside of the stellar lines (fx>0.6).
+  cgplot,fxm_i[tsel],fxm_f[tsel],/overplot
+ 
+  cgplot,wave,order_norm_equal_airmass_master_spectrum,color='red',/yno
+  cgplot,wave,order_norm_equal_airmass_master_spectrum/fxm_f,/overplot
+  cgplot,wave,fxm_f,/overplot,color='blu5'
+  
+  tel_model=rebin(reform(fxm_f,npx,1),npx,nexp) ;rebin(reform(fxm_c,npx,1),npx,nexp)^rebin(reform(airmass/dA,1,nexp),npx,nexp);These are the actual telluric lines.
+
+ ; writefits,'test.fits',tel_model*res_model
+  return,tel_model*res_model
+end

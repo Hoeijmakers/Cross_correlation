@@ -1,0 +1,53 @@
+function fast_sysrem,im_in,err_in,n_pass
+;This is a wrapper for the fast SYSREM routine.
+
+  
+  data_in=im_in*1.0d
+  for i=0,n_pass-1,1 do begin
+     data_out=sysrem1(data_in,err_in)
+     data_in=data_out*1.0d
+  endfor
+  return,data_out
+end
+
+
+function sysrem1,data_in,errors_in
+
+
+  npix=n_elements(data_in(*,0))
+  nfrm=n_elements(data_in(0,*))
+
+  ;'a' is the vector with nfrm elements
+  ;'c' is the vector with npix elements
+
+                                ;as begin evcvector we use the average
+                                ;of the columns 
+
+  a=data_in(npix/3.0,*)
+  c=dblarr(npix)
+  a1=rebin(a,npix,nfrm)
+  e_sq=errors_in^2.0
+ 
+  c=total(data_in*a1/e_sq,2)/total(a1^2.0/e_sq,2)
+  c1=rebin(c,npix,nfrm)  
+  
+  k=1
+  cor1=c1*a1*1.0d
+  cor0=cor1*0.0d     
+  data_h=data_in*1.0d
+  c0=0.0001
+  a0=0.0001
+  while ((total(abs(cor0-cor1))/total(abs(cor0)) ge 1.e-3) or (total(abs(a0-a))/total(abs(a0)) ge 1.e-4)) do begin ;UNTIL CONVERGES
+     cor0=cor1        
+     a=total(data_in*c1/e_sq,1)/total(c1^2.0/e_sq,1)
+     a1=rebin(transpose(a),npix,nfrm)
+     c=total(data_in*a1/e_sq,2)/total(a1^2.0/e_sq,2)
+     c1=rebin(c,npix,nfrm)
+     cor1=a1*c1*1.0d
+     a0=a
+     c0=c
+  endwhile
+  
+  return,data_in-cor1+1        
+end
+

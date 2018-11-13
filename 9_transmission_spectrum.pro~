@@ -1,0 +1,13 @@
+pro transmission_spectrum,dp,n,wlrange=wlrange,model=model
+  order=readfits(dp+'/order_'+trim(n)+'.fits')
+  w=readfits(dp+'/wave_'+trim(n)+'.fits')
+  profile=calctimes(dp,/transit)
+  rv=calctimes(dp)
+
+  outsel=where(profile eq 0)
+  insel=where(profile eq 1)
+
+  mean_out=mean(order[*,outsel],dimension=2)
+  mean_in=mean(order[*,insel],dimension=2)
+stop
+end

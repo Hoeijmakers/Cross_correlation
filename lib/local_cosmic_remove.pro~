@@ -1,0 +1,17 @@
+function local_outlier_remove,order,thresh,dpx
+  npx=n_elements(order[*,0])
+  order_clean=order*0.0
+
+  for i=0,npx-1,1 do begin
+     if i-dpx ge 0 and i+dpx le npx-1 then sel=order[i-dpx:i+dpx,*] else begin
+        if i-dpx lt 0 then sel=order[0:2*dpx,*]
+        if i+dpx gt npx-1 then sel=order[npx-1-2*dpx:npx-1,*]
+     endelse
+
+     stop
+  endfor
+  
+  return order_clean
+end
+
+     

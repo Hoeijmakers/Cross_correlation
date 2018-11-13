@@ -1,0 +1,100 @@
+pro inject_model,dataset,n,modelname,customRV=customRV
+                                ;This procedure reads the raw HARPS
+                                ;orders and injects a model into it
+  dp='data/'+dataset
+  Rm=0
+  model=get_model(modelname,resolution=Rm)
+
+
+  Rd=paramget('data_resolution',dp)
+  mode=paramget('model_mode',dp)
+  planet_radius=paramget('R',dp)
+  inclination=paramget('inclination',dp)
+  P=paramget('P',dp)  
+  inpath=dp+'/order_'+trim(n)+'.fits'
+  inpathwl=dp+'/wave_'+trim(n)+'.fits'
+  order=double(readfits(inpath,/silent))
+  wld=readfits(inpathwl,/silent)
+  wlm=model[*,0]
+  fxm=model[*,1]
+  n_exp=n_elements(order[0,*])
+  c=299792d0
+  
+  ;Determine the model profile
+  CASE mode OF
+     'transit': mask=calctimes(dp,/transit)
+;     'scattering': mask=calctimes(dp,/scattering)
+;     'out_transit_scattering':
+;     mask=calctimes(dp,/out_transit_scattering);Config file doesnt
+;     have Henyey Greenstein params yet.
+     'dayside': mask=(sin(calctimes(dp,/phase_angle))+(!pi-calctimes(dp,/phase_angle))*cos(calctimes(dp,/phase_angle)))/!pi
+  ENDCASE
+
+  
+  ;Blurring
+  l=mean([min(wld),max(wld)])
+  sigma=resolution_kernel(Rd,Rm,l) ;same unit as l.  ;<--- this is defunct now... Rm is no longer needed, and assumed to be infinite.
+  sel=where(wlm ge min(wld) AND wlm le max(wld));To get a local pixel scale
+  pxscale=(max(wlm[sel])-min(wlm[sel]))/n_elements(wlm[sel]) ;model scale nm/px
+
+;For planet rotation and spectral resolution
+                                vsini=2.0*!pi*planet_radius*69911.0/(P*86400.0)*sin(inclination/!radeg)
+                                ;lsf=lsf_rotate(c*pxscale/l,vsini,epsilon=0.0)
+
+                                lsf=planet_rotate(c*pxscale/l,c/Rd,planet_radius,P,inclination)
+                                fxm_narrow=fxm*1.0
+  fxm=convol(fxm,lsf/total(lsf),/edge_truncate)
+  print,'Blurring model with vsin(i)='+r_trim(vsini,2)+'km/s and dv='+r_trim(c/Rd,2)+' for R = '+trim(Rd)+'.'
+ 
+                                ;For Spectral resolution
+  
+  ;if sigma gt 0.0 then begin
+   ;  fxm=convol(fxm,psf_gaussian(npixel=sigma/pxscale*500.0,st_dev=sigma/pxscale,/normalize,ndimen=1),/edge_truncate);GAUSS_SMOOTH(fxm,sigma/pxscale,/edge_truncate) ; GAUSS SMOOTH IN IDL IS DEFUNCT. NEVER USE IT. NEVER NEVER NEVER.
+   ;  print,'Blurring with FWHM='+r_trim(2.355*sigma*c/l,2)+'km/s  to match spectral resolution ('+r_trim(sigma/pxscale,2)+' model px; '+r_trim(sigma,4)+'nm)'
+  ;endif
+
+  ;For exposure time
+  dRV=calctimes(dp,/dRV)
+  print,'Blurring with a box of dRV='+r_trim(mean(dRV),2)+'km/s on average'
+  vi=calctimes(dp)
+
+  if keyword_set(customRV) then RV=customRV else RV=paramget('vsys',dp)
+  shifti=1.0+(vi+RV)/c          ;SHIFT_INSERT
+
+  injected=order*0.0            ;this will contain the injected model
+  ;injected_uniform=order*0.0;This will contain a uniform version of the injected model. This is for having access to an order-weighthed CCF that doesn't contain exp-by-exp weights.
+  if n_elements(fxm) le 200.0 then begin
+     print,'Data array seems small! Interrupting.'
+     stop
+  endif
+
+  if pxscale eq 0 then begin
+     print,"Pxscale = 0. Likely the model doesn't cover the data." 
+     print,'Interrupting.'
+     stop
+  endif
+  
+  
+  
+  for w=0,n_exp-1,1 do begin
+     width_nm=abs(dRV[w])*l/c
+     width_px=width_nm / pxscale
+     fxm_s2=smooth(fxm,width_px,/edge_truncate) ;<=== *** HERE
+     model_insert=interpol(fxm_s2,wlm*shifti[w],wld,/spline)
+     
+     ;help,injected
+     ;help,model_insert
+     injected[*,w]=mask[w]*(model_insert-1.0)+1.0
+     ;injected_uniform[*,w]=model_insert
+
+  endfor
+  order_ins=order*injected
+  ;order_insu=order*injected_uniform
+  writefits,'test_injected.fits',injected
+  stop
+  outpath='output/'+dataset+'/model_injection/'
+  file_mkdir,outpath
+  writefits,outpath+'order_'+trim(n)+'.fits',order_ins
+                                ;writefits,outpath+'order_'+trim(n)+'_uniform.fits',order_insu
+end
+

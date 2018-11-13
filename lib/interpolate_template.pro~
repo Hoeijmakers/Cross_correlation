@@ -1,0 +1,13 @@
+function interpolate_template,fx,wl,wln
+
+  dwln_start=wln[1]-wln[0]
+  dwln_end=wln[-1]-wln[-2]
+
+  wlnp=[wln[0]-dwln_start,wln,wln[-1]+dwln_end];Extrapolated output array to be able to deal with edges.
+
+  
+  for i=0,n_elements(wl)-1,1 do begin
+     diff=wln-wl[i]
+     stop
+  endfor
+end

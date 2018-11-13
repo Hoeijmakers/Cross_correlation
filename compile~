@@ -1,0 +1,24 @@
+retall
+.r lib/fast_sysrem.pro
+.r lib/convert_model_lorenzo.pro
+.r lib/get_model.pro
+.r lib/calctimes.pro
+.r lib/paramget.pro
+.r lib/cube_xcor.pro
+.r lib/local_outlier_remove.pro
+.r lib/remove_streaks.pro
+.r lib/write_ccf_matrix.pro
+.r lib/normalization.pro
+.r lib/xcor_rv.pro
+.r lib/ccf_unskew.pro
+.r lib/rebinw.pro
+.r lib/findex.pro
+.r 1_read_data.pro
+.r 2_inject_model.pro
+.r 3_clean_data.pro
+.r 4_xcor_data.pro
+.r 5_stack_ccfs.pro
+.r 6_co_add_ccfs.pro
+.r 7_clean_ccfs.pro
+.r 8_make_kpvsys.pro
+.r main.pro

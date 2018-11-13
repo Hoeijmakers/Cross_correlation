@@ -1,0 +1,20 @@
+function remove_streaks,im
+
+  imT=transpose(im)
+  kernel=[-2,-1,0,1,2]
+  nx=n_elements(im[*,0])
+  ny=n_elements(im[0,*])
+
+  xderiv=im*0.0
+  yderiv=im*0.0
+
+  for i=0,ny-1,1 do xderiv[*,i]=convol(im[*,i],kernel,/edge_truncate)
+  for i=0,nx-1,1 do yderiv[i,*]=convol(im[i,*],kernel,/edge_truncate)
+
+
+  stop
+
+
+
+end
+

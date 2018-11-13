@@ -1,0 +1,25 @@
+function planet_rotate,R,P
+
+  lw=0.1                        ;km/s ;instrinsic linewidth
+  n=10000.0
+  a=findgen(n)/(n-1)*!pi
+  Rj=69911.0
+  dv=20.0/(2.0*n)
+  
+  P=P*24.0*3600;seconds in a day
+  R=R*Rj;km
+  rv=cos(a)*2.0*R/P
+
+
+  rvgrid=(findgen(2.0*n)-n)*dv
+  lsf=rvgrid*0.0
+
+  for i=0,n_elements(rv)-1,1 do begin
+     lsf+=gaussian(rvgrid,[1.0,rv[i],lw])
+  endfor
+  lsf=lsf/total(lsf)
+
+
+
+  return,lsf
+end
