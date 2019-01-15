@@ -127,6 +127,7 @@ def RV(dp):
     import numpy as np
     p=phase(dp)
     i=paramget('inclination',dp)
+    typetest('i',i,float)
     vorb=v_orb(dp)
     rv=vorb*np.sin(2.0*np.pi*p)*np.sin(np.radians(i))
     return rv#In km/s.
@@ -151,5 +152,53 @@ def dRV(dp):
     p=phase(dp)
     P=paramget('P',dp)
     i=paramget('inclination',dp)
+    typetest('P',P,float)
+    typetest('i',i,float)
+
     dRV=vorb*np.cos(2.0*np.pi*p)*2.0*np.pi/(P*day)*np.sin(np.radians(i))
     return abs(dRV*Texp)
+
+def transit(dp):
+    """This code uses Ians astro python routines for the approximate Mandel &
+    Agol transit lightcurve to produce the predicted transit lightcurve for the
+    planet described by the configfile located at dp/config.
+    This all assumes a circular orbit.
+    ===========
+    Derivation:
+    ===========
+    occultnonlin_small(z,p, cn) is the algorithm of the Mandel&Agol derivation.
+    z = d/R_star, where d is the distance of the planet center to the LOS to the
+    center of the star.
+    sin(alpha) = d/a, with a the orbital distance (semi-major axis).
+    so sin(alpha)*a/Rstar = d/a*a/Rstar = d/Rstar = z.
+    a/Rstar happens to be a quantity that is well known from the transit light-
+    curve. So z = sin(2pi phase)*a/Rstar. But this is in the limit of i = 90.
+
+    From Cegla 2016 it follows that z = sqrt(xp^2 + yp^2). These are given
+    as xp = a/Rstar sin(2pi phase) and yp = -a/Rstar * cos(2pi phase) * cos(i).
+
+    The second quantity, p, is Rp/Rstar, also well known from the transit light-
+    curve.
+
+    cn is a four-element vector with the nonlinear limb darkening coefficients.
+    If a shorter sequence is entered, the later values will be set to zero.
+    By default I made it zero; i.e. the injected model does not take into
+    account limb-darkening.
+    """
+    import lib.iansastropy as iap
+    import numpy as np
+    import pdb
+    typetest('dp',dp,str)
+    p=phase(dp)
+    a_Rstar=paramget('aRstar',dp)
+    Rp_Rstar=paramget('RpRstar',dp)
+    i=paramget('inclination',dp)
+    typetest('Rp_Rstar',a_Rstar,float)
+    typetest('a_Rstar',a_Rstar,float)
+    typetest('i',i,float)
+
+    xp=np.sin(p*2.0*np.pi)*a_Rstar
+    yp=np.cos(p*2.0*np.pi)*np.cos(np.radians(i))*a_Rstar
+    z=np.sqrt(xp**2.0 + yp**2.0)
+    transit=iap.occultnonlin_small(z,Rp_Rstar,[0.0,0.0])
+    return transit
