@@ -1,19 +1,7 @@
 #This replaces calctimes and includes paramget.
 
-day=86400.0  #seconds
-AU=1.496e+11 #meters
-Msun=1.989e+30 #kg
-Mjup=1.898e27 #kg
-c=299792458.0 #m/s
-
-def typetest(varname,var,vartype):
-    if isinstance(varname,str) != True:
-        raise Exception("Unit error in unit test: varname should be of class string.")
-    if isinstance(var,vartype) != True:
-        raise Exception("Unit error: %s should be of class string." % varname)
-
-
 def paramget(keyword,dp):
+    from lib.utils import typetest
     typetest('dp',dp,str)
     typetest('keyword',keyword,str)
 
@@ -40,6 +28,7 @@ def paramget(keyword,dp):
 
 
 def v_orb(dp):
+    from lib.utils import typetest
     """This program calculates the orbital velocity in km/s for the planet in the
     data sequence provided in dp, the data-path. dp starts in the root folder,
     i.e. it starts with data/projectname/, and it ends with a slash.
@@ -50,8 +39,11 @@ def v_orb(dp):
 
     import numpy as np
     import pdb
-    P=paramget('P',dp)*day
-    r=paramget('a',dp)*AU
+    import lib.constants as const
+
+
+    P=paramget('P',dp)*const.day
+    r=paramget('a',dp)*const.AU
 
     typetest('P',P,float)
     typetest('r',r,float)
@@ -66,6 +58,7 @@ def v_orb(dp):
 
 
 def phase(dp):
+
     """This program calculates the orbital phase of the planet in the data
     sequence provided using the parameters in dp/config and the timings in
     dp/obstimes. dp starts in the root folder, i.e. it starts with
@@ -82,14 +75,13 @@ def phase(dp):
 
     More importantly: The transit center time needs to be provided in config
     in BJD."""
-    typetest('dp',dp,str)
-
+    from lib.utils import typetest
     import numpy as np
     import pdb
     from astropy.io import ascii
     from astropy.time import Time
     from astropy import units as u, coordinates as coord
-
+    typetest('dp',dp,str)
     d=ascii.read(dp+'obs_times',names=['mjd','time','exptime','airmass'])
     t = Time(d['time'],scale='utc', location=coord.EarthLocation.of_site('paranal'))
     jd = t.jd
@@ -123,8 +115,9 @@ def RV(dp):
     Example: v=RV('data/Kelt-9/night1/')
     The output is an array with length N, corresponding to N exposures.
     The radial velocity is provided in km/s."""
-    typetest('dp',dp,str)
+    from lib.utils import typetest
     import numpy as np
+    typetest('dp',dp,str)
     p=phase(dp)
     i=paramget('inclination',dp)
     typetest('i',i,float)
@@ -143,9 +136,12 @@ def dRV(dp):
     The change in radial velocity is calculated using the first derivative of the
     formula for RV, multiplied by the exposure time provided in obs_times.
     The answer is provided in units of km/s change within each exposure."""
-    typetest('dp',dp,str)
+    from lib.utils import typetest
     import numpy as np
+    import lib.constants as const
     from astropy.io import ascii
+    typetest('dp',dp,str)
+
     d=ascii.read(dp+'obs_times',names=['mjd','time','exptime','airmass'])
     Texp=d['exptime'].astype('float')
     vorb=v_orb(dp)
@@ -155,7 +151,7 @@ def dRV(dp):
     typetest('P',P,float)
     typetest('i',i,float)
 
-    dRV=vorb*np.cos(2.0*np.pi*p)*2.0*np.pi/(P*day)*np.sin(np.radians(i))
+    dRV=vorb*np.cos(2.0*np.pi*p)*2.0*np.pi/(P*const.day)*np.sin(np.radians(i))
     return abs(dRV*Texp)
 
 def transit(dp):
@@ -185,6 +181,7 @@ def transit(dp):
     By default I made it zero; i.e. the injected model does not take into
     account limb-darkening.
     """
+    from lib.utils import typetest
     import lib.iansastropy as iap
     import numpy as np
     import pdb
