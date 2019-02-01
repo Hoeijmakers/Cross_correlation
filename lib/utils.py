@@ -11,30 +11,52 @@ def typetest(varname,var,vartype):
     if isinstance(var,vartype) != True:
         raise Exception("Type error: %s should be %s." % (varname,vartype))
 
-def typetest_list(varname,var,vartype):
-    """This program tests the type of the elements in the list var which has the
+def typetest_array(varname,var,vartype):
+    """This program tests the type of the elements in the array or list var which has the
     name varname, against the type vartype, and raises an exception if either
-    varname is not a string, type(var) is not equal to list or the elements of
-    var are not ALL equal to vartype.
+    varname is not a string, type(var) is not equal to numpy.array or list, or the elements of
+    var are not ALL of a type equal to vartype.
 
     Example:
-    a = 'ohai'
-    utils.typtest_array('a',a,str)"""
+    a = ['alef','lam','mim']
+    utils.typetest_array('teststring',a,str)"""
+    import numpy as np
     if isinstance(varname,str) != True:
         raise Exception("Input error in typetest: varname should be of type string.")
-    if isinstance(var,list) != True:
-        raise Exception("Input error in typetest_array: %s should be of class list." % varname)
+    if (isinstance(var,list) != True) and (isinstance(var,np.ndarray) != True):
+        raise Exception("Input error in typetest_array: %s should be of class list or numpy array." % varname)
     for i in range(0,len(var)):
         typetest('element %s of sizes' % i,var[i],vartype)
 
 
-def vartest(var,ndim,sizes):
-    import numpy as np
-    typetest('ndim',ndim,int)
-    typetest('sizes',sizes,list)
+def dimtest(var,sizes):
 
+    """This program tests the dimensions and shape of the input array var.
+    ndim is the number of axes. sizes is the number of elements on each axis.
+    The program uses the above type tests to make sure that the input is ok.
+    If an element in sizes is set to zero, that dimension is not checked against.
+    Example:
+    import numpy as np
+    a=[[1,2,3],[4,3,9]]
+    b=np.array(a)
+    dimtest(a,2,[2,3])
+    dimtest(a,2,[3,10])
+    
+    """
+    import numpy as np
+    typetest_array('sizes',sizes,int)
+    ndim=len(sizes)
 
     dimerror=0.0
     sizeerror=0.0
-    if np.dim(var) != ndim:
-        raise Exception("Dimension error in vartest:  ")
+    if np.ndim(var) != ndim:
+        raise Exception("Dimension error in vartest:  ndim = %s but was required to be %s." % (np.ndim(var),ndim))
+
+    sizes_var=np.shape(var)
+
+    for i in range(0,len(sizes)):
+        if sizes[i] < 0:
+            raise Exception("Sizes was not set correctly. It contains negative values. (%s)" % sizes(i))
+        if sizes[i] > 0:
+            if sizes[i] != sizes_var[i]:
+                raise Exception("Dimension error in vartest: Axis %s contains %s elements, but %s were required." % (i,sizes_var[i],sizes[i]))

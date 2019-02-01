@@ -15,6 +15,7 @@ def get_model(name,library='models/library'):
     """
 
     from lib.utils import typetest
+    from lib.utils import dimtest
     import pdb
     from astropy.io import fits
     typetest('name',name,str)
@@ -42,4 +43,5 @@ def get_model(name,library='models/library'):
 
 
     modelarray=fits.getdata(modelpath)#Two-dimensional array with wl on the first row and flux on the second row.
+    dimtest(modelarray,[2,0])
     return(modelarray[0,:],modelarray[1,:])
