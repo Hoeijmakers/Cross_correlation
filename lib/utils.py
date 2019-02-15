@@ -1,3 +1,15 @@
+def start():
+    import time
+    return(time.time())
+
+def end(start,id=''):
+    import time
+    end=time.time()
+    print('Elapsed %s: %s' % ('on timer '+id,end-start))
+    return end-start
+
+
+
 def typetest(varname,var,vartype):
     """This program tests the type of var which has the name varname against
     the type vartype, and raises an exception if either varname is not a string,
@@ -20,13 +32,15 @@ def typetest_array(varname,var,vartype):
     Example:
     a = ['alef','lam','mim']
     utils.typetest_array('teststring',a,str)"""
+    #NEED TO FIX: MAKE SURE THAT A RANGE OF TYPES CAN BE TESTED FOR, SUCH AS
+    #float, np.float32, np.float64... should all pass as a float.
     import numpy as np
     if isinstance(varname,str) != True:
         raise Exception("Input error in typetest: varname should be of type string.")
     if (isinstance(var,list) != True) and (isinstance(var,np.ndarray) != True):
         raise Exception("Input error in typetest_array: %s should be of class list or numpy array." % varname)
     for i in range(0,len(var)):
-        typetest('element %s of sizes' % i,var[i],vartype)
+        typetest('element %s of %s' % (i,varname),var[i],vartype)
 
 
 def dimtest(var,sizes):
@@ -41,7 +55,7 @@ def dimtest(var,sizes):
     b=np.array(a)
     dimtest(a,2,[2,3])
     dimtest(a,2,[3,10])
-    
+
     """
     import numpy as np
     typetest_array('sizes',sizes,int)
