@@ -46,7 +46,7 @@ def typetest_array(varname,var,vartype):
 def dimtest(var,sizes):
 
     """This program tests the dimensions and shape of the input array var.
-    ndim is the number of axes. sizes is the number of elements on each axis.
+    Sizes is the number of elements on each axis.
     The program uses the above type tests to make sure that the input is ok.
     If an element in sizes is set to zero, that dimension is not checked against.
     Example:

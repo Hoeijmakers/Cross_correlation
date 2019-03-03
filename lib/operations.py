@@ -2,7 +2,7 @@
 #various kernels and continuum normalization.
 
 def convolve(array,kernel,edge_degree=1):
-    """It's unbelievable, but I did could not find the python equivalent of IDL's
+    """It's unbelievable, but I could not find the python equivalent of IDL's
     /edge_truncate keyword, which truncates the kernel at the edge of the convolution.
     Therefore, unfortunately, I need to code a convolution operation myself.
     Stand by to be slowed down by an order of magnitude #thankspython.
@@ -150,16 +150,20 @@ def blur_rotate(wl,order,dv,Rp,P,inclination):
 
 
 
-def blur_gaussian_lsf(wl,order,dv,mode='gaussian'):
-    """This function takes a spectrum, and blurs it using a Gaussian kernel, which
-    has a FWHM width of dv km/s everywhere. Meaning that its width changes dynamically.
+def blur_spec(wl,order,dv,mode='gaussian'):
+    """This function takes a spectrum, and blurs it using either a
+    Gaussian kernel or a box kernel, which have a FWHM width of dv km/s everywhere.
+    Meaning that the width changes dynamically on a constant d-lambda grid.
     Because the kernel needs to be recomputed on each element of the wavelength axis
-    individually, this operation is (or should be) much slower than convolution with
+    individually, this operation is much slower than convolution with
     a constant kernel, in which a simple shifting of the array, rather than a recomputation
-    of the Gaussian is sufficient.
+    of the kernel is sufficient.
 
-    This program is repeated below for a rotation kernel as well (and may be depricated
-    by it...)"""
+    This program is repeated above for a rotation kernel as well.
+
+    Set the mode to gaussian or box. Because in box, care is taken to correctly
+    interpolate the edges, it is about twice slower than the Gaussian.
+    This interpolation is done manually in the fun.box function."""
     import numpy as np
     import lib.utils as ut
     import lib.functions as fun
@@ -170,11 +174,7 @@ def blur_gaussian_lsf(wl,order,dv,mode='gaussian'):
     ut.typetest('dv',dv,float)
     ut.typetest('wl',wl,np.ndarray)
     ut.typetest('order',order,np.ndarray)
-    #ut.typetest_array('wl',wl,np.float64)
-    #ut.typetest_array('order',order,np.float64)
-    #This is not possible because order may be 2D...
-    #And besides, you can have floats, np.float32 and np.float64... All of these would
-    #need to pass. Need to fix typetest_array.
+    ut.typetest('mode',mode,str)
 
 
     truncsize=8.0#The gaussian is truncated at 5 sigma.
@@ -185,6 +185,7 @@ def blur_gaussian_lsf(wl,order,dv,mode='gaussian'):
     d_kernel=np.array([-1,0,1])/2.0
     deriv = convolve(wl,d_kernel)
     #l*dv/c=dl
+    dwl=wl*dv/const.c*1000.0
     sig_wl=wl*sig_dv/const.c*1000.0#in nm
     sig_px=sig_wl/deriv
     trunc_dist=np.round(sig_px*truncsize).astype(int)
@@ -192,19 +193,31 @@ def blur_gaussian_lsf(wl,order,dv,mode='gaussian'):
     if len(shape) == 1:
         print('Do the entire thing in 1D')
         order_blurred=order*0.0
-        for i in range(0,len(wl)):
-            #Im going to select wl in a bin so that I dont need to evaluate a gaussian over millions of points that are all zero
-            binstart=max([0,i-trunc_dist[i]])
-            binend=i+trunc_dist[i]
-            k = fun.gaussian(wl[binstart:binend],1.0,wl[i],sig_wl[i])
-            k_n=k/np.sum(k)
-            order_blurred[i]=np.sum(k_n*order[binstart:binend])
-            #To speed up, need to select wl and then append with zeroes.
-        return(order_blurred)
+        if mode == 'gaussian':
+            for i in range(0,len(wl)):
+                #Im going to select wl in a bin so that I dont need to evaluate a gaussian over millions of points that are all zero
+                binstart=max([0,i-trunc_dist[i]])
+                binend=i+trunc_dist[i]
+                k = fun.gaussian(wl[binstart:binend],1.0,wl[i],sig_wl[i])
+                k_n=k/np.sum(k)
+                order_blurred[i]=np.sum(k_n*order[binstart:binend])
+                #To speed up, need to select wl and then append with zeroes. <= what does that mean? Jens 03 mar 18
+            return(order_blurred)
+        elif mode == 'box':
+            for i in range(0,len(wl)):
+                binstart=max([0,i-trunc_dist[i]])
+                binend=i+trunc_dist[i]
+                k = fun.box(wl[binstart:binend],1.0,wl[i],dwl[i])
+                k_n=k/np.sum(k)
+                order_blurred[i]=np.sum(k_n*order[binstart:binend])
+            return(order_blurred)
+        else:
+            raise Exception("ERROR: Mode should be set to 'gaussian' or 'box'.")
+
 
     if len(shape) == 2:
         print('Do the entire thing in 2D')
-        print("ERROR: THIS FUNCTIONALITY HAS NOT YET BEEN ADDED.")
+        raise Exception("ERROR: THIS FUNCTIONALITY HAS NOT YET BEEN ADDED.")
 
     if len(shape) >=3:
         raise Exception("Error in blur_gaussian_lsf: dimension of order should be 1 or 2, but is %s" % len(shape))
