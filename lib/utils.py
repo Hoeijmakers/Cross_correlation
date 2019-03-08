@@ -8,6 +8,13 @@ def end(start,id=''):
     print('Elapsed %s: %s' % ('on timer '+id,end-start))
     return end-start
 
+def nantest(varname,var):
+    import numpy as np
+    if np.isnan(var).any()  == True:
+        raise Exception("NaN error: %s contains NaNs." % varname)
+    if np.isinf(var).any()  == True:
+        raise Exception("Finite error: %s contains in-finite values." % varname)
+
 
 
 def typetest(varname,var,vartype):
