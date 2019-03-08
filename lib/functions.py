@@ -6,6 +6,8 @@ def gaussian(x,A,mu,sig):
     import numpy as np
     return A * np.exp(-0.5*(x - mu)/sig*(x - mu)/sig)
 
+    
+
 def box(x,A,c,w):
     """This function computes a box with width w, amplitude A and center c
     on grid x. It would be a simple multiplication of two heaviside functions,

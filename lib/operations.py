@@ -1,6 +1,5 @@
 #This package contains operations that act on spectra, such as blurring with
 #various kernels and continuum normalization.
-
 def convolve(array,kernel,edge_degree=1):
     """It's unbelievable, but I could not find the python equivalent of IDL's
     /edge_truncate keyword, which truncates the kernel at the edge of the convolution.
@@ -19,7 +18,7 @@ def convolve(array,kernel,edge_degree=1):
     import pdb
     import lib.functions as fun
     import lib.utils as ut
-
+    ut.typetest('edge_degree',edge_degree,int)
     ut.typetest('array',array,np.ndarray)
     ut.typetest('kernel',kernel,np.ndarray)
 
@@ -55,6 +54,147 @@ def convolve(array,kernel,edge_degree=1):
     #This thus again has length equal to len(array).
     return np.convolve(array_padded,kr,'valid')
 
+def derivative(x):
+    import numpy as np
+    d_kernel=np.array([-1,0,1])/2.0
+    return(convolve(x,d_kernel))
+
+
+def smooth(fx,w,mode='box',edge_degree=1):
+    """This function takes a spectrum, and blurs it using either a
+    Gaussian kernel or a box kernel, which have a FWHM width of dv px everywhere.
+    Meaning that the width changes dynamically on a constant d-lambda grid.
+
+    Set the mode to gaussian or box. Because in box, care is taken to correctly
+    interpolate the edges, it is about twice slower than the Gaussian.
+    This interpolation is done manually in the fun.box function."""
+
+    import numpy as np
+    import lib.utils as ut
+    import lib.functions as fun
+    import pdb
+    from matplotlib import pyplot as plt
+    import lib.constants as const
+    import time
+    ut.typetest('w',w,float)
+    ut.typetest('fx',fx,np.ndarray)
+    ut.typetest('mode',mode,str)
+    ut.typetest('edge_degree',edge_degree,int)
+
+    truncsize=8.0#The gaussian is truncated at 8 sigma.
+    shape=np.shape(fx)
+
+    sig_w = w / 2*np.sqrt(2.0*np.log(2)) #Transform FWHM to Gaussian sigma. In km/s.
+    trunc_dist=np.round(sig_w*truncsize).astype(int)
+
+    #First define the kernel.
+    kw=int(np.round(truncsize*sig_w*2.0))
+    if kw % 2.0 != 1.0:#This is to make sure that the kernel has an odd number of
+    #elements, and that it is symmetric around zero.
+        kw+=1
+
+    kx=fun.findgen(kw)
+    kx-=np.mean(kx)#This must be centered around zero. Doing a hardcoded check:
+    if (-1.0)*kx[-1] != kx[0]:
+        print(kx)
+        raise Exception("ERROR in box_smooth: Kernel could not be made symmetric somehow. Attempted kernel grid is printed above. Kernel width is %s pixels." % kw)
+
+
+    if mode == 'gaussian':
+        k=fun.gaussian(kx,1.0,0.0,sig_w)
+
+
+    if mode == 'box':
+        k=fun.box(kx,1.0,0.0,w)
+        kx=kx[k > 0.0]
+        k=k[k > 0.0]
+        if (-1.0)*kx[-1] != kx[0]:
+            print(kx)
+            raise Exception("ERROR in box_smooth: Kernel could not be made symmetric AFTER CROPPING OUT THE BOX, somehow. Attempted kernel grid is printed above. Kernel width is %s pixels." % kw)
+
+    k/=np.sum(k)
+
+    return(convolve(fx,k,edge_degree))
+
+
+
+    if len(shape) == 1:
+        #print('Do the entire thing in 1D')
+        order_blurred=order*0.0
+        if mode == 'gaussian':
+            for i in range(0,len(wl)):
+                #Im going to select wl in a bin so that I dont need to evaluate a gaussian over millions of points that are all zero
+                binstart=max([0,i-trunc_dist[i]])
+                binend=i+trunc_dist[i]
+                k = fun.gaussian(wl[binstart:binend],1.0,wl[i],sig_wl[i])
+                k_n=k/np.sum(k)
+                order_blurred[i]=np.sum(k_n*order[binstart:binend])
+                #To speed up, need to select wl and then append with zeroes. <= what does that mean? Jens 03 mar 18
+            return(order_blurred)
+        elif mode == 'box':
+            for i in range(0,len(wl)):
+                binstart=max([0,i-trunc_dist[i]])
+                binend=i+trunc_dist[i]
+                k = fun.box(wl[binstart:binend],1.0,wl[i],dwl[i])
+                k_n=k/np.sum(k)
+                order_blurred[i]=np.sum(k_n*order[binstart:binend])
+            return(order_blurred)
+        else:
+            raise Exception("ERROR: Mode should be set to 'gaussian' or 'box'.")
+
+
+
+
+
+
+def constant_velocity_wl_grid(wl,fx,oversampling=1.0):
+    """This function will define a constant-velocity grid that is (optionally)
+    sampled a number of times finer than the SMALLEST velocity difference that is
+    currently in the grid.
+
+    Example: wl_cv,fx_cv = constant_velocity_wl_grid(wl,fx,oversampling=1.5).
+
+    WARNING: This function is hardcoded to raise an exception if wl or fx contain NaNs,
+    because interp1d does not handle NaNs."""
+    import lib.constants as consts
+    import numpy as np
+    import lib.functions as fun
+    import lib.utils as ut
+    from scipy import interpolate
+    ut.typetest('oversampling',oversampling,float)
+    ut.typetest('wl',wl,np.ndarray)
+    ut.typetest('fx',fx,np.ndarray)
+    ut.nantest('wl',wl)
+    ut.nantest('fx',fx)
+
+
+    if oversampling <= 0.0:
+        raise Exception("ERROR in constant velocity wl grid: oversampling should be positive and finite.")
+
+    c=consts.c/1000.0
+    dl=derivative(wl)
+    dv=dl/wl*c
+    a=np.min(dv)/oversampling
+
+    wl_new=0.0
+    #The following while loop will define the new pixel grid.
+    #It starts trying 10,000 points, and if that's not enough to cover the entire
+    #range from min(wl) to max(wl), it will add 10,000 more; until it's enough.
+    n=10000.0
+
+    while np.max(wl_new) < np.max(wl):
+        x=fun.findgen(n)
+        wl_new=np.exp(a/c * x)*np.min(wl)
+        n+=10000.0
+    wl_new[0]=np.min(wl)#Artificially set to zero to avoid making a small round
+    #off error in that exponent.
+
+    #Then at the end we crop the part that goes too far:
+    wl_new_cropped=wl_new[(wl_new <= np.max(wl))]
+    x_cropped=x[(wl_new <= np.max(wl))]
+    i_fx = interpolate.interp1d(wl,fx)
+    fx_new_cropped =i_fx(wl_new_cropped)
+    return(wl_new_cropped,fx_new_cropped,a)
 
 
 
@@ -79,8 +219,11 @@ def blur_rotate(wl,order,dv,Rp,P,inclination):
     Rp, P and i need to be scalar floats.
 
     Output:
-    The blurred spectral axis, with the same dimensions as wl and order."""
+    The blurred spectral axis, with the same dimensions as wl and order.
 
+
+    WARNING: THIS FUNCTION HANDLES NANS POORLY. I HAVE THEREFORE DECIDED CURRENTLY
+    TO REQUIRE NON-NAN INPUT."""
     import numpy as np
     import lib.utils as ut
     import lib.functions as fun
@@ -95,21 +238,26 @@ def blur_rotate(wl,order,dv,Rp,P,inclination):
     ut.typetest('P',P,float)
     ut.typetest('Rp',Rp,float)
     ut.typetest('i',inclination,float)
+    ut.nantest('wl',wl)
+    ut.nantest('order',order)
     ut.dimtest(wl,[0])
     ut.dimtest(order,[len(wl)])#Test that wl and order are 1D, and that
     #they have the same length.
 
+    if np.min(np.array([dv,P,Rp])) <= 0.0:
+        raise Exception("ERROR in blur_rotate: dv, P and Rp should be strictly positive.")
 
     #ut.typetest_array('wl',wl,np.float64)
     #ut.typetest_array('order',order,np.float64)
     #This is not possible because order may be 2D...
     #And besides, you can have floats, np.float32 and np.float64... All of these would
-    #need to pass. Need to fix typetest_array.
+    #need to pass. Need to fix typetest_array some day.
+
+
     order_blurred=order*0.0#init the output.
     truncsize=5.0#The gaussian is truncated at 5 sigma from the extremest points of the RV amplitude.
     sig_dv = dv / (2*np.sqrt(2.0*np.log(2))) #Transform FWHM to Gaussian sigma. In km/s.
-    d_kernel=np.array([-1,0,1])/2.0
-    deriv = convolve(wl,d_kernel)
+    deriv = derivative(wl)
 
     sig_wl=wl*sig_dv/const.c*1000.0#in nm
     sig_px=sig_wl/deriv
@@ -119,7 +267,9 @@ def blur_rotate(wl,order,dv,Rp,P,inclination):
     rv=np.cos(a)*2.0*np.pi*Rp*const.Rjup/P/const.day*np.sin(np.radians(inclination))/1000.0
     trunc_dist=np.round(sig_px*truncsize+np.max(rv)*wl/const.c*1000.0/deriv).astype(int)
 
-    rvgrid_max=(truncsize+1.0)*sig_dv+np.max(rv)
+
+
+    rvgrid_max=(np.max(trunc_dist)+1.0)*sig_dv+np.max(rv)
     rvgrid_n=rvgrid_max / dv * 100.0 #100 samples per lsf fwhm.
     rvgrid=(fun.findgen(2*rvgrid_n+1)-rvgrid_n)/rvgrid_n*rvgrid_max#Need to make sure that this is wider than the truncation bin and more finely sampled than wl - everywhere.
 
@@ -137,6 +287,7 @@ def blur_rotate(wl,order,dv,Rp,P,inclination):
 
         wlgrid =   wl[i]*rvgrid/(const.c/1000.0)+wl[i]#This converts the velocity grid to a d-wavelength grid centered on wk[i]
         #print([np.min(wlbin),np.min(wlgrid),np.max(wlbin),np.max(wlgrid)])
+
         i_wl = interpolate.interp1d(wlgrid,lsf) #This is a class that can be called.
         lsf_wl=i_wl(wlbin)
         k_n=lsf_wl/np.sum(lsf_wl)#Normalize at each instance of the interpolation to make sure flux is conserved exactly.
@@ -164,6 +315,9 @@ def blur_spec(wl,order,dv,mode='gaussian'):
     Set the mode to gaussian or box. Because in box, care is taken to correctly
     interpolate the edges, it is about twice slower than the Gaussian.
     This interpolation is done manually in the fun.box function."""
+
+    print('I MAY NOT WANT TO USE BLUR-SPEC BECAUSE IT IS SLOW, AT LEAST IN BOX MODE.')
+    print('AND I HAVE NOT THOROUGHLY BENCHMARKED IT.')
     import numpy as np
     import lib.utils as ut
     import lib.functions as fun
@@ -191,7 +345,7 @@ def blur_spec(wl,order,dv,mode='gaussian'):
     trunc_dist=np.round(sig_px*truncsize).astype(int)
 
     if len(shape) == 1:
-        print('Do the entire thing in 1D')
+        #print('Do the entire thing in 1D')
         order_blurred=order*0.0
         if mode == 'gaussian':
             for i in range(0,len(wl)):
