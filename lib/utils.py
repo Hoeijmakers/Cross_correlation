@@ -17,7 +17,8 @@ def nantest(varname,var):
 
 def postest(a,varname=''):
     """This function tests whether a number/array is strictly positive."""
-    if a.any() <= 0:
+    import numpy as np
+    if np.min(a) <= 0:
         raise Exception('POSTEST ERROR: Variable %s should be strictly positive' % varname)
 
 def typetest(varname,var,vartype):
