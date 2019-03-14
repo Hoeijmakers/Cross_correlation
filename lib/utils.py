@@ -15,7 +15,10 @@ def nantest(varname,var):
     if np.isinf(var).any()  == True:
         raise Exception("Finite error: %s contains in-finite values." % varname)
 
-
+def postest(a,varname=''):
+    """This function tests whether a number/array is strictly positive."""
+    if a.any() <= 0:
+        raise Exception('POSTEST ERROR: Variable %s should be strictly positive' % varname)
 
 def typetest(varname,var,vartype):
     """This program tests the type of var which has the name varname against
@@ -62,7 +65,6 @@ def dimtest(var,sizes):
     b=np.array(a)
     dimtest(a,2,[2,3])
     dimtest(a,2,[3,10])
-
     """
     import numpy as np
     typetest_array('sizes',sizes,int)
