@@ -1,3 +1,32 @@
+def selmax(y,p,s=0.0):
+    """This program returns the p (fraction btw 0 and 1) highest points in y,
+    ignoring the very top s % (default zero, i.e. no points ignored), for the
+    purpose of outlier rejection."""
+    import lib.utils as ut
+    import numpy as np
+    ut.postest(p)
+    if s < 0.0:
+        raise Exception("ERROR in selmax: s should be zero or positive.")
+    if p >= 1.0:
+        raise Exception("ERROR in selmax: p should be strictly between 0.0 and 1.0.")
+    if s >= 1.0:
+        raise Exception("ERROR in selmax: s should be strictly less than 1.0.")
+    ut.postest(-1.0*p+1.0)
+    ut.nantest('y in selmax',y)
+    ut.dimtest(y,[0])#Test that it is one-dimensional.
+
+    y_sorting = np.flipud(np.argsort(y))#These are the indices in descending order (thats why it gets a flip)
+    N=len(y)
+    if s == 0.0:
+        max_index = np.max([int(round(N*p)),1])#Max because if the fraction is 0 elements, then at least it should contain 1.0
+        return y_sorting[0:max_index]
+
+    if s > 0.0:
+        min_index = np.max([int(round(N*s)),1])#If 0, then at least it should be 1.0
+        max_index = np.max([int(round(N*(p+s))),2]) #If 0, then at least it should be 1+1.
+        return y_sorting[min_index:max_index]
+
+
 def gaussian(x,A,mu,sig):
     """This produces a gaussian function on the grid x with amplitude A, mean mu
     and standard deviation sig. Will need to expand it with a version that has
@@ -6,7 +35,6 @@ def gaussian(x,A,mu,sig):
     import numpy as np
     return A * np.exp(-0.5*(x - mu)/sig*(x - mu)/sig)
 
-    
 
 def box(x,A,c,w):
     """This function computes a box with width w, amplitude A and center c
@@ -79,8 +107,6 @@ def box(x,A,c,w):
     return y*A
 
 
-
-
 def findgen(n):
     """This is basically IDL's findgen function.
     a = findgen(5) will return an array with 5 elements from 0 to 4:
@@ -88,3 +114,12 @@ def findgen(n):
     """
     import numpy as np
     return np.linspace(0,n-1,n)
+
+
+def rebinreform(a,n):
+    """This program works like the rebin(reform()) trick in IDL, where you use fast
+    array manipulation operations to transform a 1D array into a 2D stack of itself,
+    to be able to do operations on another 2D array by multiplication/addition/division
+    without having to loop through the second dimension of said array."""
+    import numpy as np
+    return(np.transpose(np.repeat(np.expand_dims(a,1),n,axis=1)))
