@@ -50,9 +50,14 @@ def get_model(name,library='models/library'):
 
 
 
+
+
+
 def inject_model(wld,order,dp,modelname):
     """This function takes a spectral order and injects a model with library
     identifier modelname, and system parameters as defined in dp.
+    Maybe it would be more efficient to provide wlm and fxm from outside this
+    function, but so be it. The blurring is the thing that takes long, regardless.
 
     It returns a copy of order with the model injected."""
 
@@ -68,15 +73,21 @@ def inject_model(wld,order,dp,modelname):
     #import pdb
 
     ut.dimtest(order,[0,len(wld)])
-    ut.typetest('dp',dp,str)
-    ut.typetest('modelname',dp,str)
+    ut.typetest('dp in inject_model',dp,str)
+    ut.typetest('modelname in inject_model',modelname,str)
+    #ut.typetest('wlm in inject_model',wlm,np.array)
+    #ut.dimtest(wlm,[len(fxm)])
+    ut.typetest('modelname in inject_model',dp,str)
 
     Rd=sp.paramget('resolution',dp)
     planet_radius=sp.paramget('Rp',dp)
     inclination=sp.paramget('inclination',dp)
     P=sp.paramget('P',dp)
 
+    #t1=ut.start()
     wlm,fxm=get_model(modelname)
+    #t2=ut.end(t1)
+    #pdb.set_trace()
 
     if wlm[-1] <= wlm[0]:#Reverse the wl axis if its sorted the wrong way.
         wlm=np.flipud(wlm)
@@ -108,8 +119,8 @@ def inject_model(wld,order,dp,modelname):
     mask=(transit-1.0)/(np.min(transit-1.0))
 
     injection=order*0.0
-    injection_rot_only=order*0.0
-    injection_pure=order*0.0
+    #injection_rot_only=order*0.0
+    #injection_pure=order*0.0
     #t1=ut.start()
     fxm_b=ops.blur_rotate(wlm,fxm,(const.c/1000.0)/Rd,planet_radius,P,inclination)
     #t2=ut.end(t1)
@@ -150,8 +161,8 @@ def inject_model(wld,order,dp,modelname):
         shift=(1.0+rv[i]/(const.c/1000.0))
         fxm_i=scipy.interpolate.interp1d(wlm_cv*shift,fxm_b2) #This is a class that can be called.
         injection[i,:]=fxm_i(wld)
-        injection_rot_only[i,:]=scipy.interpolate.interp1d(wlm*shift,fxm_b)(wld)
-        injection_pure[i,:]=scipy.interpolate.interp1d(wlm*shift,fxm)(wld)
+        #injection_rot_only[i,:]=scipy.interpolate.interp1d(wlm*shift,fxm_b)(wld)
+        #injection_pure[i,:]=scipy.interpolate.interp1d(wlm*shift,fxm)(wld)
     #fits.writeto('test.fits',injection,overwrite=True)
 
     #plt.plot(wld,injection_pure[15,:])
@@ -162,6 +173,56 @@ def inject_model(wld,order,dp,modelname):
     return(injection*order)
 
 
+
+def normalize_model():
+    print('ohai')
+
+def build_template(templatename,binsize=1.0,maxfrac=0.01,mode='top',resolution=0.0):
+    """THIS SHOULD BLUR A MODEL TO THE RIGHT RESOLUTION AND CONTINUUM-NORMALIZE IT."""
+
+    import lib.utils as ut
+    import numpy as np
+    import lib.operations as ops
+    from lib import constants as const
+    from astropy.io import fits
+    from matplotlib import pyplot as plt
+    from scipy import interpolate
+    import pdb
+    from lib import constants as const
+    ut.typetest('templatename build_template',templatename,str)
+    ut.typetest('binsize build_template',binsize,float)
+    ut.typetest('maxfrac build_template',maxfrac,float)
+    ut.typetest('mode build_template',mode,str)
+    ut.typetest('resolution in build_template',resolution,float)
+    c=const.c/1000.0
+
+    if mode != 'top' and mode != 'bottom':
+        raise Exception('ERROR in build_template. Mode should be set to "top" or "bottom."')
+    wlt,fxt=get_model(templatename)
+
+    if wlt[-1] <= wlt[0]:#Reverse the wl axis if its sorted the wrong way.
+        wlt=np.flipud(wlt)
+        fxt=np.flipud(fxt)
+
+    wle,fxe=ops.envelope(wlt,fxt-np.median(fxt),1.0,selfrac=maxfrac,mode=mode)#These are binpoints of the top-envelope.
+    #The median of fxm is first removed to decrease numerical errors, because the spectrum may
+    #have values that are large (~1.0) while the variations are small (~1e-5).
+    e_i = interpolate.interp1d(wle,fxe,fill_value='extrapolate')
+    envelope=e_i(wlt)
+    plt.plot(wlt,fxt-np.median(fxt)-envelope)
+    T = fxt-np.median(fxt)-envelope
+    absT = np.abs(T)
+    T[(absT < 1e-4 * np.max(absT))] = 0.0 #This is now continuum-subtracted and binary-like.
+    if resolution !=0.0:
+        print('ADD BLURRING')
+        dRV = c/resolution
+        wlt_cv,T_cv,vstep=ops.constant_velocity_wl_grid(wlt,T,oversampling=2.0)
+        print('v_step is %s km/s' % vstep)
+        print('So the resolution blurkernel has an avg width of %s px.' % (dRV/vstep))
+        T_b=ops.smooth(T_cv,dRV/vstep,mode='gaussian')
+        wlt = wlt_cv*1.0
+        T = T_b*1.0
+    return(wlt,T)
 
 
 def read_binary_mask(inpath,R=1000000.0):
