@@ -1,5 +1,96 @@
 #This package contains operations that act on spectra, such as blurring with
 #various kernels and continuum normalization.
+
+def envelope(wlm,fxm,binsize,selfrac=0.05,mode='top'):
+    """This program measures the top or bottom envelope of a spectrum (wl,fx), by
+    chopping it up into bins of size binsze (unit of wl), and measuring the mean
+    of the top n % of values in that bin. Setting the mode to 'bottom' will do the
+    oppiste: The mean of the bottom n% of values. The output is the resulting wl
+    and flux points of these bins.
+
+    Example: wle,fxe = envelope(wl,fx,1.0,selfrac=3.0,mode='top')"""
+    import pdb
+    import numpy as np
+    import lib.utils as ut
+    import lib.functions as fun
+    from matplotlib import pyplot as plt
+    ut.typetest('wlm in envelope',wlm,np.ndarray)
+    ut.typetest('fxm in envelope',fxm,np.ndarray)
+    ut.dimtest(wlm,[len(fxm)])
+    ut.typetest('binsize in envelope',binsize,float)
+    ut.typetest('percentage in envelope',selfrac,float)
+    ut.typetest('mode in envelope',mode,str)
+    ut.nantest('fxm in envelope',fxm)
+    ut.nantest('wlm in envelope',wlm)
+    ut.postest(wlm,varname='wlm in envelope')
+    ut.postest(binsize,varname='binsize in envelope')
+
+    if mode == 'bottom':
+        fxm*=-1.0
+    # wlcs=np.array([])#Center wavelengths
+    # fxcs=np.array([])#Flux at center wavelengths
+    # wlb = 0.5*binsize+np.min(wlm)
+    # t1=ut.start()
+    # while wlb+0.5*binsize < np.max(wlm):
+    #     #THIS ARRAY SELECTION IS INTENSELY SLOW. NEEDS TO BE FIXED! Stackoverflow says
+    #     #that a forloop could be very fast. But that sucks forloops in while-loops...
+    #     #sel = np.where( np.logical_and(wlm >= (wlb-0.5*binsize),wlm < (wlb+0.5*binsize)))[0]
+    #     wlsel = wlm[(wlm >= (wlb-0.5*binsize)) & (wlm < (wlb+0.5*binsize))]
+    #     fxsel = fxm[(wlm >= (wlb-0.5*binsize)) & (wlm < (wlb+0.5*binsize))]
+    #     maxsel = fun.selmax(fxsel,selfrac)
+    #     wlcs=np.append(wlcs,np.mean(wlsel[maxsel]))
+    #     fxcs=np.append(fxcs,np.mean(fxsel[maxsel]))
+    #     wlb+=binsize
+    # t2=ut.end(t1)
+    # plt.plot(wlm,fxm)
+    # plt.plot(wlcs,fxcs,'.')
+    #
+    #
+
+    #The part that is commented out above is the IDL-savvy way to do binning, with
+    #the where function. Unfortunately np.where is super slow on large arrays,
+    #so I did it in a move naive way below: Start counting wlm at its first element,
+    #and count upwards, until wlm[i]-wlm[i_start] is (larger than) the binsize.
+    #Then select everything in wlm from wlm[i_start] to wlm[i], calculate the avg
+    #maximum flux there and reset i_start to continue to the next bin.
+    #Looping over wlm once is more efficient than looping over bins and calling
+    #np.where each time, as long as the number of bins is large. In most cases all
+    #of this takes (much) less than a second, down from 30-ish seonds in the
+    #strategy that uses np.where(). Days like these make me miss IDL...
+
+    wlcs=np.array([])#Center wavelengths
+    fxcs=np.array([])#Flux at center wavelengths
+    # t3=ut.start()
+    i_start=0
+    wlm_start=wlm[i_start]
+    for i in range(0,len(wlm)):
+        if wlm[i]-wlm_start >= binsize:
+            wlsel = wlm[i_start:i]
+            fxsel = fxm[i_start:i]
+            maxsel = fun.selmax(fxsel,selfrac)
+            wlcs=np.append(wlcs,np.mean(wlsel[maxsel]))
+            fxcs=np.append(fxcs,np.mean(fxsel[maxsel]))
+            i_start=i+1
+            wlm_start=wlm[i+1]
+    # t4=ut.end(t3)
+    # plt.plot(wlcs,fxcs,'.')
+    # plt.show()
+    #
+    #
+    # pdb.set_trace()
+    if mode == 'bottom':
+        fxcs*=-1.0
+        fxm*=-1.0
+        
+    return wlcs,fxcs
+
+def normalize(wlm,fxm,binsize,emission=False,mode='linear'):
+    import numpy as np
+    import pdb
+    import lib.functions as fun
+    import lib.utils as ut
+
+
 def convolve(array,kernel,edge_degree=1):
     """It's unbelievable, but I could not find the python equivalent of IDL's
     /edge_truncate keyword, which truncates the kernel at the edge of the convolution.
@@ -54,6 +145,7 @@ def convolve(array,kernel,edge_degree=1):
     #This thus again has length equal to len(array).
     return np.convolve(array_padded,kr,'valid')
 
+
 def derivative(x):
     import numpy as np
     d_kernel=np.array([-1,0,1])/2.0
@@ -62,7 +154,7 @@ def derivative(x):
 
 def smooth(fx,w,mode='box',edge_degree=1):
     """This function takes a spectrum, and blurs it using either a
-    Gaussian kernel or a box kernel, which have a FWHM width of dv px everywhere.
+    Gaussian kernel or a box kernel, which have a FWHM width of w px everywhere.
     Meaning that the width changes dynamically on a constant d-lambda grid.
 
     Set the mode to gaussian or box. Because in box, care is taken to correctly
@@ -143,10 +235,6 @@ def smooth(fx,w,mode='box',edge_degree=1):
             raise Exception("ERROR: Mode should be set to 'gaussian' or 'box'.")
 
 
-
-
-
-
 def constant_velocity_wl_grid(wl,fx,oversampling=1.0):
     """This function will define a constant-velocity grid that is (optionally)
     sampled a number of times finer than the SMALLEST velocity difference that is
@@ -161,6 +249,8 @@ def constant_velocity_wl_grid(wl,fx,oversampling=1.0):
     import lib.functions as fun
     import lib.utils as ut
     from scipy import interpolate
+    import pdb
+    import matplotlib.pyplot as plt
     ut.typetest('oversampling',oversampling,float)
     ut.typetest('wl',wl,np.ndarray)
     ut.typetest('fx',fx,np.ndarray)
@@ -178,14 +268,13 @@ def constant_velocity_wl_grid(wl,fx,oversampling=1.0):
 
     wl_new=0.0
     #The following while loop will define the new pixel grid.
-    #It starts trying 10,000 points, and if that's not enough to cover the entire
-    #range from min(wl) to max(wl), it will add 10,000 more; until it's enough.
-    n=10000.0
-
+    #It starts trying 100,000 points, and if that's not enough to cover the entire
+    #range from min(wl) to max(wl), it will add 100,000 more; until it's enough.
+    n=len(wl)
     while np.max(wl_new) < np.max(wl):
         x=fun.findgen(n)
         wl_new=np.exp(a/c * x)*np.min(wl)
-        n+=10000.0
+        n+=len(wl)
     wl_new[0]=np.min(wl)#Artificially set to zero to avoid making a small round
     #off error in that exponent.
 
@@ -195,7 +284,6 @@ def constant_velocity_wl_grid(wl,fx,oversampling=1.0):
     i_fx = interpolate.interp1d(wl,fx)
     fx_new_cropped =i_fx(wl_new_cropped)
     return(wl_new_cropped,fx_new_cropped,a)
-
 
 
 def blur_rotate(wl,order,dv,Rp,P,inclination):
@@ -294,11 +382,6 @@ def blur_rotate(wl,order,dv,Rp,P,inclination):
         order_blurred[i]=np.sum(k_n*order[binstart:binend])
 
     return order_blurred
-
-
-
-
-
 
 
 def blur_spec(wl,order,dv,mode='gaussian'):

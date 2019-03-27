@@ -1,3 +1,16 @@
+def model_from_phoenix(wlpath,fxpath,outpath):
+    """This code reads the WAVE and SPEC files as downloaded from the PHOENIX
+    home page (http://phoenix.astro.physik.uni-goettingen.de/?page_id=15) and
+    combines them into a single spectrum."""
+    from astropy.io import fits
+    import numpy as np
+    wl=np.array(fits.getdata(wlpath))/10.0#From angstrom to nm.
+    fx=np.array(fits.getdata(fxpath))
+    model=np.stack([wl[(wl >=200.0) & (wl <=1000.0)],fx[(wl >= 200.0) & (wl <=1000.0)]])
+    fits.writeto(outpath,model)
+
+
+
 def get_model(name,library='models/library'):
     """This program queries a model from a library file, with predefined models
     for use in model injection, cross-correlation and plotting. These models have
@@ -204,12 +217,14 @@ def build_template(templatename,binsize=1.0,maxfrac=0.01,mode='top',resolution=0
         wlt=np.flipud(wlt)
         fxt=np.flipud(fxt)
 
-    wle,fxe=ops.envelope(wlt,fxt-np.median(fxt),1.0,selfrac=maxfrac,mode=mode)#These are binpoints of the top-envelope.
+    wle,fxe=ops.envelope(wlt,fxt-np.median(fxt),binsize,selfrac=maxfrac,mode=mode)#These are binpoints of the top-envelope.
     #The median of fxm is first removed to decrease numerical errors, because the spectrum may
     #have values that are large (~1.0) while the variations are small (~1e-5).
     e_i = interpolate.interp1d(wle,fxe,fill_value='extrapolate')
     envelope=e_i(wlt)
-    plt.plot(wlt,fxt-np.median(fxt)-envelope)
+    plt.plot(wlt,fxt-np.median(fxt))
+    plt.plot(wlt,envelope,'.')
+    plt.show()
     T = fxt-np.median(fxt)-envelope
     absT = np.abs(T)
     T[(absT < 1e-4 * np.max(absT))] = 0.0 #This is now continuum-subtracted and binary-like.
