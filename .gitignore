@@ -1,3 +1,9 @@
 /data
 /models
 /.DS_Store
+*.fits
+lib/__pycache__
+lib/*.pyc
+lib/.DS_Store
+*.pdf
+lib/*/*.pyc
