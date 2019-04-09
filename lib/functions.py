@@ -123,3 +123,33 @@ def rebinreform(a,n):
     without having to loop through the second dimension of said array."""
     import numpy as np
     return(np.transpose(np.repeat(np.expand_dims(a,1),n,axis=1)))
+
+
+def read_binary(path,double=False):
+    #This code comes through Lorenzo, to read binary files.
+    import numpy as np
+    import struct
+# Define format of the single chunk, in this case 1 float object
+    struct_fmt = '=f'
+    if double == True:
+        struct_fmt = '=d'
+# struct_fmt = '@f'  # Same result, not sure which is the difference
+# Length of the single chunk, 4 bytes for us
+    struct_len = struct.calcsize(struct_fmt)
+    #pdb.set_trace()
+# Build the interpreter of the binary format
+    struct_unpack = struct.Struct(struct_fmt).unpack_from
+    opacities = []
+# Open with the b option to read binary
+    # i=0
+    with open(path, "rb") as f:
+    # Until eof
+        while True:
+            data = f.read(struct_len)
+            # if i > 1.1e7:
+                # print(i)
+                # print(len(data))
+            if not data: break
+            opacities.append(struct_unpack(data))
+            # i+=1
+    return(np.array(opacities))

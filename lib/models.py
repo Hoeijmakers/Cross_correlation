@@ -122,7 +122,7 @@ def inject_model(wld,order,dp,modelname):
     n_exp=shape[0]
     transit=sp.transit(dp)
     rv=sp.RV(dp)
-    dRV=sp.dRV(dp)*5.0
+    dRV=sp.dRV(dp)
     phi=sp.phase(dp)
     ut.dimtest(transit,[n_exp])
     ut.dimtest(rv,[n_exp])
@@ -190,8 +190,12 @@ def inject_model(wld,order,dp,modelname):
 def normalize_model():
     print('ohai')
 
-def build_template(templatename,binsize=1.0,maxfrac=0.01,mode='top',resolution=0.0):
-    """THIS SHOULD BLUR A MODEL TO THE RIGHT RESOLUTION AND CONTINUUM-NORMALIZE IT."""
+
+
+
+def build_template(templatename,binsize=1.0,maxfrac=0.01,mode='top',resolution=0.0,twopass=False):
+    """This routine reads a specified model from the library and turns it into a
+    cross-correlation template by subtracting the top-envelope (or bottom envelope)"""
 
     import lib.utils as ut
     import numpy as np
@@ -222,14 +226,19 @@ def build_template(templatename,binsize=1.0,maxfrac=0.01,mode='top',resolution=0
     #have values that are large (~1.0) while the variations are small (~1e-5).
     e_i = interpolate.interp1d(wle,fxe,fill_value='extrapolate')
     envelope=e_i(wlt)
-    plt.plot(wlt,fxt-np.median(fxt))
-    plt.plot(wlt,envelope,'.')
-    plt.show()
+    # plt.plot(wlt,fxt-np.median(fxt))
+    # plt.plot(wlt,envelope,'.')
+    # plt.show()
     T = fxt-np.median(fxt)-envelope
     absT = np.abs(T)
     T[(absT < 1e-4 * np.max(absT))] = 0.0 #This is now continuum-subtracted and binary-like.
+    #Any values that are small are taken out.
+    #This therefore assumes that the model has lines that are deep compared to the numerical
+    #error of envelope subtraction (!).
+    # plt.plot(wlt,T)
+    # plt.show()
     if resolution !=0.0:
-        print('ADD BLURRING')
+        print('ADD BLURRING OF TEMPLATE')
         dRV = c/resolution
         wlt_cv,T_cv,vstep=ops.constant_velocity_wl_grid(wlt,T,oversampling=2.0)
         print('v_step is %s km/s' % vstep)

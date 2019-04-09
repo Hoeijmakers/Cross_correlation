@@ -1,7 +1,7 @@
 #This package contains operations that act on spectra, such as blurring with
 #various kernels and continuum normalization.
 
-def envelope(wlm,fxm,binsize,selfrac=0.05,mode='top'):
+def envelope(wlm,fxm,binsize,selfrac=0.05,mode='top',threshold=''):
     """This program measures the top or bottom envelope of a spectrum (wl,fx), by
     chopping it up into bins of size binsze (unit of wl), and measuring the mean
     of the top n % of values in that bin. Setting the mode to 'bottom' will do the
@@ -72,6 +72,15 @@ def envelope(wlm,fxm,binsize,selfrac=0.05,mode='top'):
             fxcs=np.append(fxcs,np.mean(fxsel[maxsel]))
             i_start=i+1
             wlm_start=wlm[i+1]
+
+    if isinstance(threshold,float) == True:
+        #This means that the threshold value is set, and we set all bins less than
+        #that threshold to the threshold value:
+        if mode == 'bottom':
+            threshold*=-1.0
+        fxcs[(fxcs < threshold)] = threshold
+
+
     # t4=ut.end(t3)
     # plt.plot(wlcs,fxcs,'.')
     # plt.show()
@@ -81,7 +90,6 @@ def envelope(wlm,fxm,binsize,selfrac=0.05,mode='top'):
     if mode == 'bottom':
         fxcs*=-1.0
         fxm*=-1.0
-        
     return wlcs,fxcs
 
 def normalize(wlm,fxm,binsize,emission=False,mode='linear'):
@@ -346,7 +354,8 @@ def blur_rotate(wl,order,dv,Rp,P,inclination):
     truncsize=5.0#The gaussian is truncated at 5 sigma from the extremest points of the RV amplitude.
     sig_dv = dv / (2*np.sqrt(2.0*np.log(2))) #Transform FWHM to Gaussian sigma. In km/s.
     deriv = derivative(wl)
-
+    if max(deriv) < 0:
+        raise Exception("ERROR in ops.blur_rotate: WL derivative is smaller than 1.0. Sort wl in ascending order.")
     sig_wl=wl*sig_dv/const.c*1000.0#in nm
     sig_px=sig_wl/deriv
 
