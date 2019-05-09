@@ -153,3 +153,12 @@ def read_binary(path,double=False):
             opacities.append(struct_unpack(data))
             # i+=1
     return(np.array(opacities))
+
+
+def doppler_shift(wl_source,dv):
+    """This function returns the rel. doppler shifted wavelength of a velocity
+    dv applied to source wavelength wl_source."""
+    import lib.constants as const
+    import numpy as np
+    b = (dv*1000.0)/const.c
+    return(np.sqrt((1+b)/(1-b))*wl_source)
