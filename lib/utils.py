@@ -21,6 +21,14 @@ def postest(a,varname=''):
     if np.min(a) <= 0:
         raise Exception('POSTEST ERROR: Variable %s should be strictly positive' % varname)
 
+def notnegativetest(a,varname=''):
+    """This function tests whether a number/array is strictly positive."""
+    import numpy as np
+    if np.min(a) < 0:
+        raise Exception('POSTEST ERROR: Variable %s should not be negative' % varname)
+
+
+
 def typetest(varname,var,vartype):
     """This program tests the type of var which has the name varname against
     the type vartype, and raises an exception if either varname is not a string,
