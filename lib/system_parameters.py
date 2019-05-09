@@ -54,8 +54,26 @@ def v_orb(dp):
         raise Exception("r <= zero. Check configfile at %s." % dp)
     return 2.0*np.pi*r/P/1000.0
 
+def berv(dp):
 
-
+    """This program retrieves the BERV corrcetion tabulated in the obs_times file.
+    Example: brv=berv('data/Kelt-9/night1/')
+    The output is an array with length N, corresponding to N exposures. These values
+    are / should be taken from the FITS header.
+    """
+    from lib.utils import typetest
+    import numpy as np
+    import pdb
+    from astropy.io import ascii
+    from astropy.time import Time
+    from astropy import units as u, coordinates as coord
+    typetest('dp',dp,str)
+    d=ascii.read(dp+'obs_times',comment="#")#,names=['mjd','time','exptime','airmass'])
+    #Removed the named columns because I may not know for sure how many columns
+    #there are, and read-ascii breaks if only some columns are named.
+    #The second column has to be a date array though.
+    berv = d['col5']
+    return berv.data
 
 def phase(dp):
 
@@ -82,8 +100,11 @@ def phase(dp):
     from astropy.time import Time
     from astropy import units as u, coordinates as coord
     typetest('dp',dp,str)
-    d=ascii.read(dp+'obs_times',names=['mjd','time','exptime','airmass'])
-    t = Time(d['time'],scale='utc', location=coord.EarthLocation.of_site('paranal'))
+    d=ascii.read(dp+'obs_times',comment="#")#,names=['mjd','time','exptime','airmass'])
+    #Removed the named columns because I may not know for sure how many columns
+    #there are, and read-ascii breaks if only some columns are named.
+    #The second column has to be a date array though.
+    t = Time(d['col2'],scale='utc', location=coord.EarthLocation.of_site('paranal'))
     jd = t.jd
     P=paramget('P',dp)
     RA=paramget('RA',dp)
