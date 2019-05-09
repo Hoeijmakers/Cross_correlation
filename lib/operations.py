@@ -467,3 +467,24 @@ def blur_spec(wl,order,dv,mode='gaussian'):
 
     if len(shape) >=3:
         raise Exception("Error in blur_gaussian_lsf: dimension of order should be 1 or 2, but is %s" % len(shape))
+
+
+def airtovac(wlnm):
+    wlA=wlnm*10.0
+    s = 1e4 / wlA
+    n = 1 + 0.00008336624212083 + 0.02408926869968 / (130.1065924522 - s**2) + 0.0001599740894897 / (38.92568793293 - s**2)
+    return(wlA*n/10.0)
+
+def normalize_orders(list_of_orders):
+    import numpy as np
+    import lib.functions as fun
+    import pdb
+    N = len(list_of_orders)
+    out_list_of_orders=[]
+    n_px=np.shape(list_of_orders[0])[1]
+
+    for i in range(N):
+        meanflux=np.nanmean(list_of_orders[i],axis=1)#Average flux in each order.
+        meanblock=fun.rebinreform(meanflux/np.nanmean(meanflux),n_px).T
+        out_list_of_orders.append(list_of_orders[i]/meanblock)
+    return(out_list_of_orders)
