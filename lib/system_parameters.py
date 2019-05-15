@@ -127,6 +127,25 @@ def phase(dp):
     phase=((diff.jd) % P)/P
     return phase
 
+def RV_star(dp):
+    """This program calculates the radial velocity in km/s for the STAR in the
+    data sequence provided in dp, the data-path. dp starts in the root folder,
+    i.e. it starts with data/projectname/, and it ends with a slash.
+
+    Example: v=RV_star('data/Kelt-9/night1/')
+    The output is an array with length N, corresponding to N exposures.
+    The radial velocity is provided in km/s. This is meant to be used to correct
+    (align) the stellar spectra to the same reference frame. It requires K (the
+    RV-semi amplitude to be provided in the config file, in km/s as well. Often
+    this value is given in discovery papers.
+    Like everything, this code assumes a circular orbit."""
+    from lib.utils import typetest
+    import numpy as np
+    p=phase(dp)
+    K=paramget('K',dp)
+    typetest('K',K,float)
+    rv=K*np.sin(2.0*np.pi*p) * (-1.0)
+    return(rv)
 
 def RV(dp):
     """This program calculates the radial velocity in km/s for the planet in the

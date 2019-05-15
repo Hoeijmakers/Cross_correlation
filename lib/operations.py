@@ -488,3 +488,97 @@ def normalize_orders(list_of_orders):
         meanblock=fun.rebinreform(meanflux/np.nanmean(meanflux),n_px).T
         out_list_of_orders.append(list_of_orders[i]/meanblock)
     return(out_list_of_orders)
+
+
+
+
+def shift_ccf(RV,CCF,drv):
+        import lib.functions as fun
+        import lib.utils as ut
+        import numpy as np
+        #import matplotlib.pyplot as plt
+        import scipy.interpolate
+        import pdb
+        import astropy.io.fits as fits
+        import matplotlib.pyplot as plt
+        import sys
+        import scipy.ndimage.interpolation as scint
+
+
+        if np.ndim(CCF) == 1.0:
+            print("ERROR in shift_ccf: CCF should be a 2D block.")
+            sys.exit()
+        else:
+            n_exp=len(CCF[:,0])#Number of exposures.
+            n_rv=len(CCF[0,:])
+        if len(RV) != n_rv:
+            print('ERROR in shift_ccf: RV does not have the same length as the base size of the CCF block.')
+            sys.exit()
+        if len(drv) != n_exp:
+            print('ERROR in shift_ccf: drv does not have the same height as the CCF block.')
+            sys.exit()
+
+        CCF_new=CCF*0.0
+        for i in range(n_exp):
+            #C_i=scipy.interpolate.interp1d(RV,CCF[i],fill_value=(0.0,0.0))
+            #CCF_new[i,:] = C_i(RV-drv[i]*2.0)
+            CCF_new[i,:] = scint.shift(CCF[i],drv[i])
+        return(CCF_new)
+
+def gauss_fit(x,y,start=None,plot=False):
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from lmfit import Model
+    import pdb
+
+    def gaussian(x, amp, cen, wid, cont):
+        """1-d gaussian: gaussian(x, amp, cen, wid)"""
+        return (amp * np.exp(-(x-cen)**2 / (2*wid**2)) + cont)
+
+
+    gmodel = Model(gaussian)
+
+    if start == None:
+        maxindex = (abs(y-np.nanmedian(y))).argmax()
+
+        start = [0.0,x[maxindex],(max(x)-min(x))/10.0,np.nanmedian(y)]
+        print(start)
+    result = gmodel.fit(y, x=x, amp=start[0], cen=start[1], wid=start[2], cont=start[3])
+
+    # print(result.fit_report())
+
+    aaa=result.best_values
+    fitamp = aaa['amp']
+    fitcen = aaa['cen']
+    fitwid = aaa['wid']
+    fitcon = aaa['cont']
+
+    if plot == True:
+        plt.plot(x, y, 'bo')
+        plt.plot(x, result.init_fit, 'k--')
+        plt.plot(x, result.best_fit, 'r-')
+        plt.show()
+    return(fitamp,fitcen,fitwid,fitcon)
+
+
+
+def measure_rv(RV,CCF1D,dv=15.0,plot=False):
+    """This fits a Gaussian to a 1D CCF."""
+    import numpy as np
+    import sys
+    import lib.functions as fun
+    import lib.operations as ops
+    import matplotlib.pyplot as plt
+    import pdb
+
+    maxindex = (abs(CCF1D-np.nanmedian(CCF1D))).argmax()
+    RV_0 = RV[maxindex]
+    sel = [(RV > RV_0-dv) & (RV < RV_0+dv)]
+    y = CCF1D
+    fit=ops.gauss_fit(RV[sel],y[sel],start=[0.0,RV_0,dv,np.nanmedian(y)])
+    if plot == True:
+        plt.plot(RV,y,'.')
+        plt.plot(RV[sel],y[sel],'.')
+        plt.plot(RV,fun.gaussian(RV,fit[0],fit[1],fit[2],cont=fit[3]))
+        plt.show()
+    return(fit[1])
