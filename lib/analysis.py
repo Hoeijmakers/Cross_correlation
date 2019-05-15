@@ -28,11 +28,12 @@ def xcor(list_of_wls,list_of_orders,wlm,fxm,drv,RVrange,NaN=None,verticalmask=No
     import pdb
     import astropy.io.fits as fits
     import matplotlib.pyplot as plt
-
+    import sys
 
 #===FIRST ALL SORTS OF TESTS ON THE INPUT===
     if len(list_of_wls) != len(list_of_orders):
         raise Exception('ERROR in xcor: List of wls and list of orders have different length (%s & %s).' % (len(list_of_wls),len(list_of_orders)))
+
     ut.dimtest(wlm,[len(fxm)])
     ut.typetest('wlm in xcor',wlm,np.ndarray)
     ut.typetest('fxm in xcor',fxm,np.ndarray)
@@ -42,6 +43,7 @@ def xcor(list_of_wls,list_of_orders,wlm,fxm,drv,RVrange,NaN=None,verticalmask=No
     ut.postest(drv,varname='drv in xcor')
     ut.nantest('fxm in xcor',fxm)
     N=len(list_of_wls)#Number of orders.
+
     if np.ndim(list_of_orders[0]) == 1.0:
         n_exp=1
     else:
@@ -49,7 +51,8 @@ def xcor(list_of_wls,list_of_orders,wlm,fxm,drv,RVrange,NaN=None,verticalmask=No
 #===Then check that all orders indeed have n_exp exposures===
         for i in range(N):
             if len(list_of_orders[i][:,0]) != n_exp:
-                raise Exception('ERROR in xcor: Not all orders have %s exposures.' % n_exp)
+                print('ERROR in xcor: Not all orders have %s exposures.' % n_exp)
+                sys.exit()
 #===END OF TESTS. NOW DEFINE CONSTANTS===
     c=const.c/1000.0
     RV=fun.findgen(2.0*RVrange/drv+1)*drv-RVrange#..... CONTINUE TO DEFINE THE VELOCITY GRID
@@ -140,51 +143,90 @@ def xcor(list_of_wls,list_of_orders,wlm,fxm,drv,RVrange,NaN=None,verticalmask=No
 
 #Propagate errors:
 #S_Rp^2 = (dRp/ddf sdf)^2 + (dRp/dRs sRs)^2
-
-
-
-def clean_ccf(rv,ccf,ccf_e,dp):
-    """This routine normalizes the CCF fluxes and subtracts the average out of
-    transit CCF, using the transit lightcurve as a mask."""
-
+def plot_RV_star(dp,RV,CCF2D):
+    import lib.operations as ops
     import numpy as np
-    import lib.functions as fun
-    import lib.utils as ut
-    from matplotlib import pyplot as plt
-    import pdb
+    import matplotlib.pyplot as plt
+    import sys
     import lib.system_parameters as sp
-    ut.typetest('rv in clean_ccf',rv,np.ndarray)
-    ut.typetest('ccf in clean_ccf',ccf,np.ndarray)
-    ut.typetest('ccf_e in clean_ccf',ccf_e,np.ndarray)
-    ut.typetest('dp in clean_ccf',dp,str)
-    ut.dimtest(ccf,[0,len(rv)])
-    ut.dimtest(ccf_e,[0,len(rv)])
-    ut.nantest('rv in clean_ccf',rv)
-    ut.nantest('ccf in clean_ccf',ccf)
-    ut.nantest('ccf_e in clean_ccf',ccf_e)
+    import pdb
+    rv_c = []
+    n_exp = np.shape(CCF2D)[0]
+    for i in range(n_exp):
+        rv_c = np.append(rv_c,ops.measure_rv(RV,CCF2D[i,:]))
+    rv_K = sp.RV_star(dp)
+    transit = sp.transit(dp)
+    phase = sp.phase(dp)
+    berv = sp.berv(dp)
+    phase[phase>0.5]-=1.0
+    sel = [transit == 1.0]
+    plt.plot(phase[sel],rv_c[sel],'.')
+    plt.plot(phase[sel],rv_c[sel]+berv[sel]-rv_K[sel],'.')
+    plt.show()
+    sys.exit()
 
 
-    transit=sp.transit(dp)
-
-    meanflux=np.median(ccf,axis=1)#Normalize the baseline flux.
-    meanblock=fun.rebinreform(meanflux,len(rv))
-    ccf_n = ccf/meanblock.T
-    ccf_ne = ccf_e/meanblock.T
-    meanccf=np.mean(ccf_n[transit == 1.0,:],axis=0)
-    meanblock=fun.rebinreform(meanccf,len(meanflux))
-    ccf_nn = ccf_n-meanblock
-    return(ccf_n,ccf_ne,ccf_nn)
-
-
-
-def plot_ccf(rv,ccf,dp):
+def plot_ccf(rv,ccf,dp,xrange,Nticks = 10.0,title='',doppler_model = []):
     """This is a routine that does all the plotting of the two-dimensional CCF.
     I expect this to be an organic function that is adapted to my plotting needs."""
 
     import numpy as np
     import matplotlib.pyplot as plt
     import pdb
+    import lib.drag_colour as dcb
+    import lib.functions as fun
+    import pylab as pl
+    import lib.system_parameters as sp
+    import lib.plotting as fancyplots
 
-    plt.imshow(ccf)
+    #Load necessary physics
+    vsys = sp.paramget('vsys',dp)
+    RVp = sp.RV(dp)+vsys
 
-    pdb.set_trace()
+    #Define the extent of the images.
+    nrv=len(rv)
+    nexp=np.shape(ccf)[0]
+    y = fun.findgen(nexp)
+    drv=rv[1]-rv[0]
+    sel = ((rv >= xrange[0]) & (rv <=xrange[1]))
+    ccf_sub = ccf[:,sel]
+    m = np.nanmedian(ccf_sub)
+    s = np.nanstd(ccf_sub)
+    vmin = m-3.0*s
+    vmax = m+3.0*s
+    rvmin=rv[sel].min()
+    rvmax=rv[sel].max()
+
+    #This initiates the meshgrid.
+    xmin = rvmin; xmax = rvmax; dx = drv
+    ymin = 0; ymax = nexp-1; dy = 1
+    x2,y2 = np.meshgrid(np.arange(xmin,xmax+dx+dx,dx)-dx/2.,np.arange(ymin,ymax+dy+dy,dy)-dy/2.)
+    z = ccf_sub
+
+    dxt = (xmax+dx - xmin) / Nticks
+    dyt = (ymax+dy - ymin) / Nticks
+    xticks = np.arange(xmin,xmax+dx,round(dxt,0))
+    yticks = np.arange(ymin,ymax+dy,round(dyt,0))
+
+    #The plotting
+    fig,ax = plt.subplots()
+    img=ax.pcolormesh(x2,y2,z,vmin=vmin,vmax=vmax,cmap='hot')
+    ax.axis([x2.min(),x2.max(),y2.min(),y2.max()])
+    line1, = ax.plot(RVp,fun.findgen(nexp),'--',color='black',label='Planet rest-frame')
+    line2, = ax.plot(RVp+2.0,fun.findgen(nexp),'--',color='black',label='Leendert')
+    pl.xticks(xticks)
+    pl.yticks(yticks)
+    ax.set_title(title)
+    plt.xlabel('Radial velocity (km/s)')
+    plt.ylabel('Exposure')
+
+    #The colourbar
+    cbar = plt.colorbar(img,format='%05.4f',aspect = 15)
+    cbar.set_norm(dcb.MyNormalize(vmin=vmin,vmax=vmax,stretch='linear'))
+    cbar = dcb.DraggableColorbar(cbar,img)
+    cbar.connect()
+
+    #The clickable legend.
+    lines = [line1, line2]
+    fancyplots.interactive_legend(fig,ax,lines)
+    plt.show()
