@@ -27,13 +27,13 @@ def selmax(y,p,s=0.0):
         return y_sorting[min_index:max_index]
 
 
-def gaussian(x,A,mu,sig):
+def gaussian(x,A,mu,sig,cont=0.0):
     """This produces a gaussian function on the grid x with amplitude A, mean mu
     and standard deviation sig. Will need to expand it with a version that has
     a polynomial continuum in the same way that IDL does it."""
 
     import numpy as np
-    return A * np.exp(-0.5*(x - mu)/sig*(x - mu)/sig)
+    return A * np.exp(-0.5*(x - mu)/sig*(x - mu)/sig)+cont
 
 
 def box(x,A,c,w):

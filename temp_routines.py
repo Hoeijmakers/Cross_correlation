@@ -1,3 +1,26 @@
+def create_weed_template():
+    import lib.functions  as fun
+    import lib.operations as ops
+    import pdb
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import astropy.io.fits as fits
+    x=fun.findgen(70*7000.0)
+    c=3e5
+    a=0.5
+    wl=np.exp(a/c * x)*350.0
+    fx=wl*0.0
+
+
+    for i in range(0,len(wl),70):
+        fx[i]=-1.0
+
+    fits.writeto('wl_weed.fits',wl)
+    fits.writeto('fx_weed.fits',fx)
+    pdb.set_trace()
+
+create_weed_template()
+
 def read_noise_csv(filename,wl):
     import csv
     import pdb
@@ -314,4 +337,4 @@ def plot_spec():
     plt.show()
 
 #plot_spec()
-HST_proposal()
+#HST_proposal()
