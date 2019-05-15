@@ -33,19 +33,24 @@ def read_HARPS_e2ds(inpath,outname,air=True):
     texp=np.array([])
     date=[]
     mjd=np.array([])
+    ccfmjd=np.array([])
     npx=np.array([])
+    nrv=np.array([])
     norders=np.array([])
     e2ds=[]
     airmass=np.array([])
     berv=np.array([])
     wave=[]
+    ccfs=[]
     outpath = 'data/'+outname
     if os.path.exists(outpath) != True:
         os.makedirs(outpath)
 
+    #ccftotal = 0 #This will hold the sum of the CCFs
     e2ds_count = 0
     sci_count = 0
     wave_count = 0
+    ccf_count = 0
     for i in range(N):
         if filelist[i].endswith('e2ds_A.fits'):
             e2ds_count += 1
@@ -70,6 +75,14 @@ def read_HARPS_e2ds(inpath,outname,air=True):
             wavedata=fits.getdata(inpath+filelist[i])
             wave.append(wavedata)
             wave_count += 1
+        if filelist[i].endswith('ccf_G2_A.fits'):
+            ccf,hdr=fits.getdata(inpath+filelist[i],header=True)
+            if hdr['HIERARCH ESO DPR CATG'] == 'SCIENCE':
+                #ccftotal+=ccf
+                ccfs.append(ccf)
+                ccfmjd=np.append(ccfmjd,hdr['MJD-OBS'])
+                nrv=np.append(nrv,hdr['NAXIS1'])
+                ccf_count += 1
 
     #Now we catch some errors:
     #-The above should have read a certain number of e2ds files.
@@ -78,7 +91,9 @@ def read_HARPS_e2ds(inpath,outname,air=True):
     #-All exposures should have the same number of spectral orders.
     #-All orders should have the same number of pixels (this is true for HARPS).
     #-The wave frame should have the same dimensions as the order frames.
-
+    if ccf_count != sci_count:
+        print("ERROR in read_HARPS_e2ds: There is a different number of science CCFs as there is science frames.")
+        sys.exit()
     if e2ds_count == 0:
         print("ERROR in read_HARPS_e2ds: The input folder (%s) does not contain files ending in e2ds.fits." % inpath)
         sys.exit()
@@ -104,6 +119,14 @@ def read_HARPS_e2ds(inpath,outname,air=True):
         for i in range(len(type)):
             print('   '+framename[i]+'  %s' % npx[i])
         sys.exit()
+    if np.max(np.abs(nrv-nrv[0])) == 0:
+        nrv=int(nrv[0])
+    else:
+        print("ERROR IN read_HARPS_e2ds: Not all files have the same number of pixels.")
+        print("These are the files and their number of pixels:")
+        for i in range(len(type)):
+            print('   '+framename[i]+'  %s' % npx[i])
+        sys.exit()
     if wave_count >= 1:
 
         wave=wave[0]#SELECT ONLY THE FIRST WAVE FRAME. The rest is ignored.
@@ -120,19 +143,25 @@ def read_HARPS_e2ds(inpath,outname,air=True):
     #the relevant information of our science frames.
     #We determine how to sort the resulting lists in time:
     sorting = np.argsort(mjd)
-
-
+    ccfsorting = np.argsort(ccfmjd)
+    ccftotal = 0.0
     #Now we loop over all exposures and collect the i-th order from each exposure,
     #put these into a new matrix and save them to FITS images:
     f=open(outpath+'obs_times','w',newline='\n')
     headerline = 'MJD'+'\t'+'DATE'+'\t'+'EXPTIME'+'\t'+'MEAN AIRMASS'+'\t'+'BERV (km/s)'+'\t'+'FILE NAME'
     for i in range(norders):
         order = np.zeros((sci_count,npx))
+        ccforder = np.zeros((ccf_count,nrv))
         wave_axis = wave[i,:]/10.0#Convert to nm.
         print('CONSTRUCTING ORDER %s' % i)
         c = 0#To count the number of science frames that have passed. The counter
         #c is not equal to j because the list of files contains not only SCIENCE
         #frames.
+        cc = 0#Same for ccfs
+        for j in range(len(ccfsorting)):
+            ccf=ccfs[ccfsorting[j]]
+            ccforder[cc,:] = ccf[i,:]
+            cc+=1
         for j in range(len(sorting)):#Loop over exposures
             if i ==0:
                 print('---'+type[sorting[j]]+'  '+date[sorting[j]])
@@ -144,8 +173,11 @@ def read_HARPS_e2ds(inpath,outname,air=True):
                     line = str(mjd[sorting[j]])+'\t'+date[sorting[j]]+'\t'+str(texp[sorting[j]])+'\t'+str(airmass[sorting[j]])+'\t'+str(berv[sorting[j]])+'\t'+framename[sorting[j]]+'\n'
                     f.write(line)
                 c+=1
+        ccftotal+=ccforder
+        fits.writeto(outpath+'/ccf_'+str(i)+'.fits',ccforder,overwrite=True)
         fits.writeto(outpath+'/order_'+str(i)+'.fits',order,overwrite=True)
         fits.writeto(outpath+'/wave_'+str(i)+'.fits',wave_axis,overwrite=True)
+    fits.writeto(outpath+'/ccftotal.fits',ccftotal,overwrite=True)
     f.close()
     print('obs_times written to '+outpath+'/')
     print('WARNING: FORMATTING IS STILL SCREWED UP!')
