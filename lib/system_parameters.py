@@ -147,7 +147,7 @@ def RV_star(dp):
     rv=K*np.sin(2.0*np.pi*p) * (-1.0)
     return(rv)
 
-def RV(dp):
+def RV(dp,vorb=None):
     """This program calculates the radial velocity in km/s for the planet in the
     data sequence provided in dp, the data-path. dp starts in the root folder,
     i.e. it starts with data/projectname/, and it ends with a slash.
@@ -161,7 +161,9 @@ def RV(dp):
     p=phase(dp)
     i=paramget('inclination',dp)
     typetest('i',i,float)
-    vorb=v_orb(dp)
+    if vorb == None:
+        vorb=v_orb(dp)
+    typetest('vorb in sp.RV',vorb,float)
     rv=vorb*np.sin(2.0*np.pi*p)*np.sin(np.radians(i))
     return rv#In km/s.
 

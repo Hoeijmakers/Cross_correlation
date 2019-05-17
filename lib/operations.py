@@ -517,15 +517,17 @@ def shift_ccf(RV,CCF,drv):
         if len(drv) != n_exp:
             print('ERROR in shift_ccf: drv does not have the same height as the CCF block.')
             sys.exit()
-
+        dv = RV[1]-RV[0]
         CCF_new=CCF*0.0
         for i in range(n_exp):
             #C_i=scipy.interpolate.interp1d(RV,CCF[i],fill_value=(0.0,0.0))
             #CCF_new[i,:] = C_i(RV-drv[i]*2.0)
-            CCF_new[i,:] = scint.shift(CCF[i],drv[i])
+            CCF_new[i,:] = scint.shift(CCF[i],drv[i]/dv,mode='nearest',order=1)
         return(CCF_new)
 
 def gauss_fit(x,y,start=None,plot=False):
+    """This simply fits a gaussian with an offset. Can be used generally, but
+    was created for measure_RV below."""
     import matplotlib.pyplot as plt
     import numpy as np
     from lmfit import Model

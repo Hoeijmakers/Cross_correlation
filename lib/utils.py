@@ -92,3 +92,20 @@ def dimtest(var,sizes):
         if sizes[i] > 0:
             if sizes[i] != sizes_var[i]:
                 raise Exception("Dimension error in vartest: Axis %s contains %s elements, but %s were required." % (i,sizes_var[i],sizes[i]))
+
+def save_stack(filename,list_of_2D_frames):
+    """This code saves a stack of fits-files to a 3D cube, that you can play
+    through in DS9. For diagnostic purposes."""
+    import astropy.io.fits as fits
+    import numpy as np
+    base = np.shape(list_of_2D_frames[0])
+    N = len(list_of_2D_frames)
+    out = np.zeros((base[0],base[1],N))
+    for i in range(N):
+        out[:,:,i] = list_of_2D_frames[i]
+    fits.writeto(filename,np.swapaxes(np.swapaxes(out,2,0),1,2),overwrite=True)
+
+def writefits(filename,array):
+    """This is a fast wrapper for fits.writeto, with overwrite enabled.... ! >_<"""
+    import astropy.io.fits as fits
+    fits.writeto(filename,array,overwrite=True)
