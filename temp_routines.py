@@ -1,25 +1,20 @@
-def create_weed_template():
-    import lib.functions  as fun
-    import lib.operations as ops
-    import pdb
-    import matplotlib.pyplot as plt
-    import numpy as np
+
+def plot_KpVsyses_Wasp_121():
     import astropy.io.fits as fits
-    x=fun.findgen(70*7000.0)
-    c=3e5
-    a=0.5
-    wl=np.exp(a/c * x)*350.0
-    fx=wl*0.0
+    import lib.analysis as an
+    Lt = ['NaI','MgI','AlI','SiI','CaI','ScI','ScII','TiI','TiII','VI','VII','CrI','CrII','MnI','FeI','FeII','CoI','NiI','W121-TiO']
+    Ld = ['Wasp-121/night1','Wasp-121/night2','Wasp-121/night3']
+
+    Kp = fits.getdata('output/'+Ld[0]+'/'+Lt[0]+'/Kp.fits')
+    RV = fits.getdata('output/'+Ld[0]+'/'+Lt[0]+'/RV.fits')
+    dp = 'data/Wasp-121/night3/' #But should be the same for all three nights.
+    N = len(Lt)
+
+    for i in range(N):
+        KpVsys = an.combine_KpVsys(Ld,[Lt[i]])
+        an.plot_KpVsys(RV,Kp,KpVsys,dp,xrange=[-100,100],Nticks = 10.0,title=Lt[i],invert=True)
 
 
-    for i in range(0,len(wl),70):
-        fx[i]=-1.0
-
-    fits.writeto('wl_weed.fits',wl)
-    fits.writeto('fx_weed.fits',fx)
-    pdb.set_trace()
-
-create_weed_template()
 
 def read_noise_csv(filename,wl):
     import csv

@@ -1,3 +1,7 @@
+#This package contains utility functions that are mostly used for making my life
+#easier, such as a wrapper for measuring elapsed time, all sorts of variable tests,
+#and quickly saving fits files.
+
 def start():
     import time
     return(time.time())

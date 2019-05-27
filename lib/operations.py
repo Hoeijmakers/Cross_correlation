@@ -1,5 +1,6 @@
-#This package contains operations that act on spectra, such as blurring with
-#various kernels and continuum normalization.
+#This package contains operations that act on spectra and ccfs, such as blurring with
+#various kernels, doppler shifting, airtovac correction, fitting Gaussians to lines
+#and continuum normalization.
 
 def envelope(wlm,fxm,binsize,selfrac=0.05,mode='top',threshold=''):
     """This program measures the top or bottom envelope of a spectrum (wl,fx), by
