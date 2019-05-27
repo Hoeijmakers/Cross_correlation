@@ -1,6 +1,38 @@
-def construct_outlier_mask(order,w,c_thresh):
-    print('THIS DOESNT EXIST YET')
-    return(order*0.0+1.0)
+def mask_orders(list_of_orders,w,c_thresh):
+    import lib.operations as ops
+    import numpy as np
+    import pdb
+    import lib.functions as fun
+    import lib.analysis as an
+    import sys
+    import matplotlib.pyplot as plt
+    import lib.utils as ut
+    N = len(list_of_orders)
+    list_of_orders = ops.normalize_orders(list_of_orders)#first normalize. Dont want outliers to
+    #affect the colour correction later on, so this has to be done twice.
+    N_NaN = 0
+    list_of_masked_orders = []
+    for i in range(N):
+        N_NaN
+        order = list_of_orders[i]
+        N_exp = np.shape(order)[0]
+        N_px = np.shape(order)[1]
+        meanspec = np.nanmean(order,axis = 0)
+        meanblock = fun.rebinreform(meanspec,N_exp)
+        res = order / meanblock - 1.0
+        sigma = fun.running_MAD_2D(res,w)
+        with np.errstate(invalid='ignore'):#https://stackoverflow.com/questions/25345843/inequality-comparison-of-numpy-array-with-nan-to-a-scalar
+            sel = np.abs(res) >= c_thresh*sigma
+            N_NaN += np.sum(sel)#This is interesting because True values count as 1, and False as zero.
+            order[sel] = np.nan
+        list_of_masked_orders.append(order)
+        # if i == 30:
+        #     x = fun.findgen(N_px)
+            # an.plot_ccf(x,order,'data/MASCARA-2/',xrange=[0,4000],Nxticks=20.0,Nyticks=10.0,i_legend=True,show=True)
+            # an.plot_ccf(x,res,'data/MASCARA-2/',xrange=[0,4000],Nxticks=20.0,Nyticks=10.0,i_legend=True,show=True)
+            # sys.exit()
+    print('%s outliers identified and set to NaN (%s %%).' % (N_NaN,N_NaN/np.size(list_of_orders)*100.0))
+    return(list_of_masked_orders)
 
 
 def clean_ccf(rv,ccf,ccf_e,dp):
@@ -28,11 +60,18 @@ def clean_ccf(rv,ccf,ccf_e,dp):
 
     meanflux=np.median(ccf,axis=1)#Normalize the baseline flux.
     meanblock=fun.rebinreform(meanflux,len(rv))
-    ccf_n = ccf/meanblock.T
-    ccf_ne = ccf_e/meanblock.T
+    transitblock = fun.rebinreform(transit,len(rv))
+    ccf_n = ccf/meanblock.T#*transitblock.T
+    #ut.writefits('test.fits',transitblock)
+    ccf_ne = ccf_e/meanblock.T#*transitblock.T
+
     meanccf=np.mean(ccf_n[transit == 1.0,:],axis=0)
     meanblock=fun.rebinreform(meanccf,len(meanflux))
-    ccf_nn = ccf_n-meanblock
+    # ut.writefits('test.fits',meanblock)
+    # pdb.set_trace()
+    ccf_nn = ccf_n/meanblock-1.0#MAY NEED TO DO SUBTRACTION INSTEAD TOGETHER W. NORMALIZATION OF LIGHTCURVE. SEE ABOVE.
+    #ONLY WORKS IF LIGHTCURVE MODEL IS ACCURATE, i.e. if Euler observations are available.
+    print("---> WARNING IN CLEANING.CLEAN_CCF(): NEED TO ADD A FUNCTION THAT YOU CAN NORMALIZE BY THE LIGHTCURVE AND SUBTRACT INSTEAD OF DIVISION!")
     return(ccf_n,ccf_ne,ccf_nn)
 
 
@@ -70,6 +109,7 @@ def construct_doppler_model_vincent(filename,dp,rv,ccf):
         modelled_ccf = ccf*0.0
         nexp = np.shape(ccf)[0]
         cont=np.median(ccf)
+
         for i in range(nexp):
             modelled_ccf[i,:] = transit[i]*params[0] * np.exp(-(rv-v_out[i]-vsys-params[1])**2 / (2*params[2]**2)) + cont + transit[i]*params[3] * np.exp(-(rv-v_out[i]-vsys-params[1])**2 / (2*params[4]**2))
 
@@ -89,3 +129,488 @@ def construct_doppler_model_vincent(filename,dp,rv,ccf):
 # result is the best fit point
 
     return(v_out+result[0][1],model)
+
+
+
+def prime_doppler_model(fig,ax,cbar):
+    import matplotlib.pyplot as plt
+    import lib.plotting as fancyplots
+    import numpy as np
+    import sys
+    import pdb
+    import time
+    from matplotlib.widgets import Button
+    import lib.drag_colour as dcb
+    #This uses the active plot_ccf figure to let the user manually select where the
+    #doppler shadow feature is located by placing a line on it. Very fancy.
+    fancyplots.adjust_title('Please define a line that traces the shadow by clicking on its top and bottom.')
+    plt.subplots_adjust(bottom=0.2)#Make room for a set of buttons.
+
+    class Index(object):
+        #This class contains the behaviour of the buttons and the "loop" when pressing
+        #reset.
+        #First we define a function to let the user click on the start and end of the
+        #shadow feature.
+        def measure_line(self):
+            from matplotlib.widgets import Button
+            pts = []#This contais the startpoint and endpoint.
+            while len(pts) < 2:
+                pts = np.asarray(plt.ginput(2, timeout=-1,mouse_pop=3,mouse_add=1))#This waits for the user
+                #to click on the plot twice. Mouse_add=1 means that its using the left mouse button.
+                #Mouse_pop would be used to remove points, but in this case the right mouse is also used
+                #for drag-adjusting the colourbar. I effectively had to disable it in ginput and this was the
+                #way to do it.
+
+            #These 3 lines create class-wide variables (attributes) top/bottom point and line.
+            #these can be called from the outside (see below).
+            self.top_point = [pts[0,0],pts[0,1]]#X and Y coordinates of the first point
+            self.bottom_point = [pts[1,0],pts[1,1]]#and the second point.
+            #The following plots the line onto the active figure:
+            self.line = ax.plot([self.top_point[0],self.bottom_point[0]],[self.top_point[1],self.bottom_point[1]],'-',color='black')#Put the input points
+            plt.draw()
+            print('Selected points:')#and output some chatter to the terminal.
+            print('   %s' % self.top_point)
+            print('   %s' % self.bottom_point)
+            #Ok, so now this function is defined in the class.
+
+
+        def __init__(self):
+            #This is what is immediately exectued when the class is initialised somewhere.
+            #We start by calling the above function. I.e. this prime_doppler_model function
+            #starts by letting the user do the clicking. (now look at the initialisation
+            #line below *****)
+            self.measure_line()
+
+        def reset(self,event):
+            #&&&&&& When pressing the reset button, the user indicates that he/she is not
+            #happy with the line. This function removes it from the plot.
+            for p in self.line:#all lines, in case self.line is a list.
+                p.remove()#Remove it (ive never seen this before but,, awesome...)
+            plt.draw()
+            self.top_point = [0,0]#We set the points chosen by the user to zero.
+            self.bottom_point = [0,0]#This is to let the ok button (see below) know
+            #that reset has been pressed, so it can be deactivated while the user is
+            #defining a new line.
+            self.measure_line()#Measure line again.
+
+        def okay(self, event):
+            #First check that the points are not both zero, i.e. that the reset button
+            #has not been pressed.
+            if all(v == 0 for v in self.top_point) and all(w == 0 for w in self.bottom_point):
+                pass
+            else:
+                plt.close('all')#This is again interesting, in order to accept the chosen
+                #line, all we need to do is close the figure; which breaks out of
+                #plt.show() below.
+
+
+    #***** here:
+    callback = Index()
+    #Now we create 2 small axis objects in which we are gonna put two buttons.
+    axreset = fig.add_axes([0.7, 0.05, 0.1, 0.075])
+    axokay = fig.add_axes([0.81, 0.05, 0.1, 0.075])
+    axreset.set_title('')
+    axokay.set_title('')
+    breset = Button(axreset, 'Reset')#This fills in a button object in the above axes.
+    bokay = Button(axokay, 'OK')
+    bokay.on_clicked(callback.okay)#Now this goes back into the class object.
+    breset.on_clicked(callback.reset)
+    #Actually, the whole reason I needed to create a class is because the button event
+    #handling is done using such a class object. I have two buttons that can be clicked,
+    #and each has its own function inside the object.
+
+    plt.show()#This line is super interesting. plt.show() holds the program in a certain state,
+    #waiting for the user to close the plot. During this time, the buttons can (apparently)
+    #be clicked. So now go back up to &&&&&&
+
+    return([callback.top_point,callback.bottom_point])
+    #Then, when we have broken out of the figure, we return the chosen points as a list.
+
+
+
+def evaluate_shadow(params,rv,ccf,transit,phase,aRstar,vsys,inclination,n_components,leastsq=True):
+    import numpy as np
+    import lib.functions as fun
+    import pdb
+    """This evaluates the doppler shadow model. Primary usage is in leastsq and in evaluation
+    of its output. Still need to write good documentation and tests. If leastsq is true, it
+    returns the flattened difference between the input CCF and the model. If it is set to false,
+    it just returns the model; and the ccf object is ignored."""
+    modelled_ccf = ccf*0.0
+    modelled_ccf[np.isnan(modelled_ccf)] = 0.0
+    nexp = np.shape(ccf)[0]
+    #From https://www.aanda.org/articles/aa/pdf/2016/04/aa27794-15.pdf
+    A = params[0]#Amplitude
+    l = params[1]#Spin-orbit angle
+    vsini = params[2]#Stellar vsini
+    W = params[3]
+    C = params[4]
+    A2 = params[5]
+    W2 = params[6]
+    v_star = fun.local_v_star(phase,aRstar,inclination,vsini,l)+vsys
+    for i in range(nexp):
+        modelled_ccf[i,:] = transit[i]*A * np.exp(-(rv-v_star[i])**2 / (2.0*W**2)) + C
+        if n_components == 2:
+            modelled_ccf[i,:] += transit[i]*A2 * np.exp(-(rv-v_star[i])**2 / (2.0*W2**2))
+    if leastsq == True:
+        diffs = modelled_ccf - ccf
+        diffs[np.isnan(diffs)] = 0.0
+        return diffs.flatten() # it expects a 1D array out.
+    else:
+        return modelled_ccf
+               # it doesn't matter that it's conceptually 2D, provided flatten it consistently
+
+def read_shadow(shadowpath,rv,ccf):
+    """This reads  shadow parameters from a pickle file generated by the fit_doppler_
+    model class below, and evaluates it on the user-supplied rv and ccf (the latter of which is
+    just for shape-purposes. WRITE TESTS AND BETTER COMMENTS)"""
+    import pickle
+    pickle_in = open(shadowpath,"rb")
+    d = pickle.load(pickle_in)
+    params = d["fit_params"]
+    T = d["Transit"]
+    p = d["Phases"]
+    aRstar = d["aRstar"]
+    vsys = d["vsys"]
+    i = d["inclination"]
+    n_c = d["n_components"]
+    maskHW = d["maskHW"]
+    return(evaluate_shadow(params,rv,ccf,T,p,aRstar,vsys,i,n_c,leastsq=False),maskHW)
+
+
+def match_shadow(rv,ccf,dp,doppler_model,maskHW):
+    import scipy.optimize
+    import pdb
+    import numpy as np
+    import lib.system_parameters as sp
+    import lib.utils as ut
+    nexp = np.shape(ccf)[0]
+    mask = ccf*0.0+1.0
+    RVp = sp.RV(dp)
+    transit = sp.transit(dp)
+    for i in range(nexp):
+        sel = (rv >= RVp[i] - maskHW) & (rv <= RVp[i]+maskHW)
+        mask[i,sel] = np.nan
+        if transit[i] == 1.0:
+            mask[i,:] = np.nan
+    masked_ccf = ccf*mask
+    #This is to fit the primer and provide starting parameters for vsini and lambda.
+    def scale_shadow(scale,doppler_model,masked_ccf):
+        import numpy as np
+        diff = scale[0] * doppler_model - masked_ccf+scale[1]
+        diff[np.isnan(diff)] = 0.0
+        return(diff.flatten())
+    result = scipy.optimize.leastsq(scale_shadow,[0.5,0.0],args = (doppler_model,masked_ccf))
+    print(result[0][0],result[0][1])#WHY IS THIS NOT EXACTLY 1.0???
+    matched_model = result[0][0]*doppler_model+result[0][1]
+    return(ccf - matched_model,matched_model)
+
+class fit_doppler_model(object):
+    #This is my second home-made class: A doppler model.
+    #The reason why I make it into a class is so that it can interact with a
+    #GUI.
+
+    def __init__(self,fig,ax,rv,ccf,primer,dp,outpath):
+        """We initialize with a figure object, three axis objects (in a list)
+        an rv axis, the CCF, the user-generated prior on the doppler shadow (the two)
+        points, and the pointer to the data in order to load physics."""
+        import lib.system_parameters as sp
+        import numpy as np
+        import pdb
+        import scipy.interpolate as interpol
+        import lib.functions as fun
+        import sys
+        #Upon initialization, we pass the keywords onto self.
+        nexp = np.shape(ccf)[0]
+        nrv = np.shape(ccf)[1]
+        self.rv = rv
+        self.ccf  = ccf
+        self.p = sp.phase(dp)
+        if len(self.p) != nexp:
+            print('ERROR IN FIT_DOPPLER_MODEL __INIT__:')
+            print('The height of the CCF does not match nexp.')
+            sys.exit()
+        transit = sp.transit(dp)-1.0
+        self.T = abs(transit/max(abs(transit)))
+        self.ax = ax
+        self.aRstar = sp.paramget('aRstar',dp)
+        self.vsys = sp.paramget('vsys',dp)
+        self.RVp = sp.RV(dp) + self.vsys
+        self.inclination = sp.paramget('inclination',dp)
+        self.n_components = 1
+        self.maskHW = 10.0 #Default masking half-width
+        self.outpath = outpath
+        #Translate the pivot to RV-phase points.
+        #Need to interpolate on phase only, because the primer was already defined in RV space.
+        p_i = interpol.interp1d(fun.findgen(nexp),self.p)
+
+        p1 = float(p_i(primer[0][1]))
+        p2 = float(p_i(primer[1][1]))
+        v1 = primer[0][0]
+        v2 = primer[1][0]
+
+        self.primer = [[v1,p1],[v2,p2]]
+        self.fit_spinorbit()
+        # self.primer = a*self.rv+b
+        self.v_star_primer = fun.local_v_star(self.p,self.aRstar,self.inclination,self.vsini_fit,self.l_fit)+self.vsys
+        # ax[0].plot(v_star_primer,fun.findgen(nexp),'--',color='black',label='Spin-orbit fit to primer')
+        self.mask_ccf()
+        self.fit_model()
+
+
+    def fit_spinorbit(self):
+        "This is fit on a set (in this case 2) RV-phase pairs."
+        import scipy.optimize
+        import pdb
+
+        #This is to fit the primer and provide starting parameters for vsini and lambda.
+        def spinorbit(params,primer,vsys,aRstar,inclination):
+            import numpy as np
+            import lib.functions as fun
+            phases = np.array([primer[0][1],primer[1][1]])
+            RVs = np.array([primer[0][0],primer[1][0]])
+            l = params[0]
+            vsini = params[1]
+            v_star = fun.local_v_star(phases,aRstar,inclination,vsini,l)+vsys
+            diff = v_star - RVs
+            return(diff)
+        result = scipy.optimize.leastsq(spinorbit,[0.7,10.0],args = (self.primer,self.vsys,self.aRstar,self.inclination))
+        self.l_fit = result[0][0]
+        self.vsini_fit = result[0][1]
+
+
+
+    def fit_model(self):#Only use class-wide variables.
+            import scipy.optimize
+            import numpy as np
+            import lib.functions as fun
+
+            A_start = np.max(np.abs(self.ccf))
+            C_start = np.nanmedian(self.ccf)
+            W_start = 5.0#km/s.
+            A2_start = A_start * (-0.2)
+            W2_start = 12.0#km/s.
+            startparams = [A_start,self.l_fit,self.vsini_fit,W_start,C_start,A2_start,W2_start]
+            result = scipy.optimize.leastsq(evaluate_shadow,startparams,args = (self.rv,self.ccf*self.ccf_mask,self.T,self.p,self.aRstar,self.vsys,self.inclination,self.n_components)) # alternatively you can do this with closure variables in f if you like
+            self.model = evaluate_shadow(result[0],self.rv,self.ccf*0.0,self.T,self.p,self.aRstar,self.vsys,self.inclination,self.n_components,leastsq=False)
+            self.out_result = result[0]
+            self.l_final = result[0][1]
+            self.vsini_final = result[0][2]
+            self.v_star_fit = fun.local_v_star(self.p,self.aRstar,self.inclination,self.vsini_final,self.l_final)+self.vsys
+
+    def mask_ccf(self):
+        import numpy as np
+        nexp = np.shape(self.ccf)[0]
+        self.ccf_mask = self.ccf*0.0+1.0
+        for i in range(nexp):
+            sel = (self.rv >= self.RVp[i] - self.maskHW) & (self.rv <= self.RVp[i]+ self.maskHW)
+            self.ccf_mask[i,sel] = np.nan
+
+    def save(self, event):
+        #First check that the points are not both zero, i.e. that the reset button
+        #has not been pressed.
+        import matplotlib.pyplot as plt
+        import pickle
+        """STILL NEED TO DO TESTS ON INPUT, E.G THAT THE OUTPATH EXISTS. IF THE OUTPATH IS
+        SET TO A FOLDER, THERE MAY BE HELL TO PAY. CHECK THAT AND CATCH THAT IF THATS TRUE.
+        (dont want to overwrite an existing folder with a binary file...)"""
+        #This kind of testing needs to be done upon init of this class, and
+        #the outpath probably also on init of the run.
+
+        #This is a dictionary that will hold the output (i.e. the fitting parameters
+        #and all the input values (including phases, vsys, and everything, needed
+        #to call evaluate_model exactly the way it was saved. The reason that I
+        #save all that information is because e.g. vsys may change somehow in between,
+        #but I don't want the removal of the doppler shadow to be affected by that).
+        #Nevertheless, I might want to build in a test that checks these values against
+        #their input and warns to write a new doppler model for consistency.
+        out_dict = {
+            "fit_params": self.out_result,
+            "Transit": self.T,
+            "Phases": self.p,
+            "aRstar": self.aRstar,
+            "vsys": self.vsys,
+            "inclination": self.inclination,
+            "n_components": self.n_components,
+            "maskHW": self.maskHW}
+        with open(self.outpath, 'wb') as f: pickle.dump(out_dict, f)
+
+        # with open(self.outpath,"w") as file:
+        #     file.write('%s\n' % self.n_components)
+        #     for i in self.out_result:
+        #         file.write('%s\n' % i)
+        plt.close('all')
+
+    def cancel(self,event):
+        import sys
+        import matplotlib.pyplot as plt
+        plt.close('all')
+        print("Exiting")
+        sys.exit()
+
+def construct_doppler_model(rv,ccf,dp,outpath,xrange=[-200,200],Nxticks=20.0,Nyticks=10.0):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import pdb
+    import lib.drag_colour as dcb
+    import lib.functions as fun
+    import lib.system_parameters as sp
+    import lib.plotting as fancyplots
+    import lib.analysis as analysis
+    import sys
+    import lib.cleaning as cleaning
+    from matplotlib.widgets import Slider, Button, RadioButtons, CheckButtons
+
+    #This is for setting plot axes in the call to plotting_scales_2D below.
+    nexp = np.shape(ccf)[0]
+    yrange=[0,nexp-1]
+    y_axis = fun.findgen(nexp)
+    #And for adding the planet line:
+    vsys = sp.paramget('vsys',dp)
+    RVp = sp.RV(dp)+vsys
+    transit = sp.transit(dp)
+    sel_transit = y_axis[[transit < 1.0]]
+    transit_start = min(sel_transit)
+    transit_end = max(sel_transit)
+    fig,ax,cbar = analysis.plot_ccf(rv,ccf,dp,xrange = xrange,Nxticks = Nxticks,Nyticks = Nyticks,i_legend=False,show=False)#Initiates the plot for the primer.
+    primer = cleaning.prime_doppler_model(fig,ax,cbar)#We use the active Figure
+    #to let the user indicate where the doppler shadow is located (the primer). This calls the plt.show()
+    #which was not called by plot_ccf. To proceed, we would like to model the shadow using the
+    #primer, along with fancy visualization of the ccf.
+    #We first re-instate a plot. This plot is a bit more complex than the primer so we don't
+    #use plot_ccf anymore; though the philosophy is similar.
+
+    # primer=[[41.501344086021504, 37.0], [38.80645161290323, 20.762254901960784]]
+    x2,y2,z,rv_sel,xticks,yticks,vmin,vmax = analysis.plotting_scales_2D(rv,y_axis,ccf,xrange,yrange,Nxticks=Nxticks,Nyticks=Nyticks,nsigma=3.0)
+    fig,ax = plt.subplots(3,1,sharex=True,figsize=(13,6))
+    plt.subplots_adjust(right=0.75)
+    #Here we initiate the model instance that does the fitting and handles the GUI
+    model_callback = cleaning.fit_doppler_model(fig,ax,rv_sel,z,primer,dp,outpath)
+
+    s_init = model_callback.maskHW
+    l_planet = []
+    t_start = []
+    t_end = []
+    l_primer = []
+    l_vfit = []
+    for sub_ax in ax:
+        sub_ax.axis([x2.min(),x2.max(),y2.min(),y2.max()])
+        sub_ax.set_xticks(xticks)
+        sub_ax.set_yticks(yticks)
+        sub_ax.set_ylabel('Exposure')
+        l1 = sub_ax.plot(RVp,y_axis,'--',color='black',label='Planet rest-frame',visible=False)[0]
+        l2 = sub_ax.plot(rv,rv*0.0+transit_start,'--',color='white',label='Transit start',visible=False)[0]
+        l3 = sub_ax.plot(rv,rv*0.0+transit_end,'--',color='white',label='Transit end',visible=False)[0]
+        l4 = sub_ax.plot(model_callback.v_star_primer,y_axis,'--',color='black',label='Local velocity (primer)',visible=False)[0]
+        l5 = sub_ax.plot(model_callback.v_star_fit,y_axis,'--',color='black',label='Local velocity (fit)',visible=False)[0]
+        l_planet.append(l1)
+        t_start.append(l2)
+        t_end.append(l3)
+        l_primer.append(l4)
+        l_vfit.append(l5)
+
+    ax[0].set_title('Data')
+    ax[1].set_title('Model shadow')
+    ax[2].set_title('Residual')
+    ax[2].set_xlabel('Radial velocity (km/s)')
+    img1=ax[0].pcolormesh(x2,y2,z,vmin=vmin,vmax=vmax,cmap='hot')
+    img2=ax[1].pcolormesh(x2,y2,model_callback.model,vmin=vmin,vmax=vmax,cmap='hot')
+    img3=ax[2].pcolormesh(x2,y2,z-model_callback.model,vmax=vmax,cmap='hot')
+    # cmap = plt.get_cmap('bwr')
+    # cmap.set_bad(color = 'white', alpha = 1.)#Make sure that NaNs show up as white.
+
+
+    #This trick to associate a single CB to multiple axes comes from
+    #https://stackoverflow.com/questions/13784201/matplotlib-2-subplots-1-colorbar
+    cbar = fig.colorbar(img1, ax=ax.ravel().tolist(),format='%05.4f',aspect = 15)
+    # cbar.set_norm(dcb.MyNormalize(vmin=vmin,vmax=vmax,stretch='linear'))
+    cbar = dcb.DraggableColorbar_fits(cbar,[img1,img2,img3],'hot')
+    cbar.connect()
+
+
+
+
+
+
+
+    #Define the interface
+    #First the check buttons for showing lines.
+    rax_top = plt.axes([0.8, 0.65, 0.15, 0.25])
+    rax_top.set_title('Plot:')
+    labels = ['Planet velocity','Transit start/end','Shadow v$_c$ primer','Shadow $v_c$ fit','Masked area']
+    start = [False,False,False,False,False,False]
+    check = CheckButtons(rax_top, labels, start)
+    def func(label):
+        index = labels.index(label)
+        lines = [l_planet,np.append(t_end,t_start),l_primer,l_vfit]
+        if index < len(lines):
+            for l in lines[index]:
+                l.set_visible(not l.get_visible())
+        if index == len(lines):#I.e. if we are on the last element, which is not a line an option for SHOWING the masked area:
+            status = check.get_status()[-1]
+            if status == True:#If true, mask the image.
+                data = z*model_callback.ccf_mask
+                data[np.isnan(data)] = np.inf#The colobar doesn't eat NaNs, set them to inf instead for the plot. Makes them white, too.
+                img1.set_array((data).ravel())
+                img3.set_array((data-model_callback.model).ravel())
+            if status == False:#If false (unclicked), then just the data w/o mask.
+                img1.set_array(z.ravel())
+                img3.set_array((z-model_callback.model).ravel())
+        plt.draw()
+    check.on_clicked(func)
+
+
+    #Then the choice for 1 or 2 components:
+    rax_middle = plt.axes([0.8, 0.45, 0.15, 0.15])
+    clabels = ['1 component', '2 components']
+    radio = RadioButtons(rax_middle,clabels)
+    def cfunc(label):
+            index = clabels.index(label)
+            model_callback.n_components = index+1
+            model_callback.fit_model()
+            status = check.get_status()[-1]
+            if status == True:#If true, mask the image.
+                data = z*model_callback.ccf_mask
+                data[np.isnan(data)] = np.inf#The colobar doesn't eat NaNs, set them to inf instead for the plot.
+                img2.set_array(model_callback.model.ravel())
+                img3.set_array((data-model_callback.model).ravel())
+            if status == False:#If false (unclicked), then just the data w/o mask.
+                img2.set_array(model_callback.model.ravel())
+                img3.set_array((z-model_callback.model).ravel())
+            plt.draw()
+    radio.on_clicked(cfunc)
+
+
+
+    #Then the slider:
+    rax_slider = plt.axes([0.8, 0.35, 0.15, 0.02])
+    rax_slider.set_title('Mask width (km/s)')
+    mask_slider = Slider(rax_slider,'', 0.0,30.0,valinit=s_init,valstep=1.0)
+    def update(val):
+        model_callback.maskHW = mask_slider.val
+        model_callback.mask_ccf()
+        model_callback.fit_model()
+
+        status = check.get_status()[-1]
+        if status == True:#If true, mask the image.
+            data = z*model_callback.ccf_mask
+            data[np.isnan(data)] = np.inf#The colobar doesn't eat NaNs...
+            img1.set_array((data).ravel())
+            img2.set_array(model_callback.model.ravel())
+            img3.set_array((data-model_callback.model).ravel())
+        if status == False:#If false (unclicked), then just the data w/o mask.
+            img1.set_array(z.ravel())
+            img2.set_array(model_callback.model.ravel())
+            img3.set_array((z-model_callback.model).ravel())
+        plt.draw()
+    mask_slider.on_changed(update)
+
+    #And finally the save button.
+    rax_save = plt.axes([0.875, 0.1, 0.06, 0.05])
+    bsave = Button(rax_save, 'Save')
+    bsave.on_clicked(model_callback.save)
+
+    rax_cancel = plt.axes([0.8, 0.1, 0.06, 0.05])
+    bcancel = Button(rax_cancel, 'Cancel')
+    bcancel.on_clicked(model_callback.cancel)
+    plt.show()#All fitting needs to be done before this line through event handling.

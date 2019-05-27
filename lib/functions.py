@@ -1,3 +1,13 @@
+def sigma_clip(array,nsigma=3.0):
+    """This returns the edge values of a sigma-clipping operation.
+    Write tests and documentation please."""
+    import numpy as np
+    m = np.nanmedian(array)
+    s = np.nanstd(array)
+    vmin = m-nsigma*s
+    vmax = m+nsigma*s
+    return vmin,vmax
+
 def selmax(y,p,s=0.0):
     """This program returns the p (fraction btw 0 and 1) highest points in y,
     ignoring the very top s % (default zero, i.e. no points ignored), for the
@@ -162,3 +172,30 @@ def doppler_shift(wl_source,dv):
     import numpy as np
     b = (dv*1000.0)/const.c
     return(np.sqrt((1+b)/(1-b))*wl_source)
+
+def local_v_star(phase,aRstar,inclination,vsini,l):
+    """This is the rigid-body, circular-orbt approximation of the local velocity occulted
+    by the planet as it goes through transit, as per Cegla et al. 2016"""
+    import numpy as np
+    xp = aRstar * np.sin(2.0*np.pi*phase)
+    yp = (-1.0)*aRstar * np.cos(2.0*np.pi*phase) * np.cos(np.deg2rad(inclination))
+    x_per = xp*np.cos(np.deg2rad(l)) - yp*np.sin(np.deg2rad(l))
+    return(x_per*vsini)
+
+def running_MAD_2D(z,w):
+    """Computers a running standard deviation of a 2-dimensional array z.
+    The stddev is evaluated over the vertical block with width w pixels.
+    The output is a 1D array with length equal to the width of z."""
+    import astropy.stats as stats
+    import numpy as np
+    size = np.shape(z)
+    ny = size[0]
+    nx = size[1]
+    import pdb
+    s = findgen(nx)*0.0
+    for i in range(nx):
+        minx = max([0,i-int(0.5*w)])
+        maxx = min([nx-1,i+int(0.5*w)])
+        s[i] = stats.mad_std(z[:,minx:maxx],ignore_nan=True)
+
+    return(s)

@@ -1,5 +1,6 @@
-
-
+#This pacakge contains routines used for analyzing CCFs and KpVsys diagrams.
+#Its main routine in the cross-correlation function.
+#The rest is construction of KpVsys and plotting routines.
 
 def xcor(list_of_wls,list_of_orders,wlm,fxm,drv,RVrange,NaN=None,verticalmask=None,plot=False,list_of_errors=None):
     """This routine takes a combined dataset (in the form of lists of wl spaces,
@@ -212,14 +213,9 @@ def plot_XCOR(list_of_wls,list_of_orders,wlm,fxm,RV,CCF,Tsums,dp,CCF_E=None,dv=1
     plt.show()
 
 
-#Kelt-9 radius ratio:
-#Rp/Rs = df = 0.08228 \pm 0.00043
-#Rs = 2.196 \pm 0.012 Rssun
-#Rp = df*Rs
-
-#Propagate errors:
-#S_Rp^2 = (dRp/ddf sdf)^2 + (dRp/dRs sRs)^2
 def plot_RV_star(dp,RV,CCF2D,RVrange=[]):
+    """This program fits the RV of a ccf in a 2D ccf.  May not be useful anymore,
+    #only for diagnostic?"""
     import lib.operations as ops
     import numpy as np
     import matplotlib.pyplot as plt
@@ -246,6 +242,7 @@ def plot_RV_star(dp,RV,CCF2D,RVrange=[]):
 
 
 def construct_KpVsys(rv,ccf,dp,kprange=[0,300],dkp=1.0):
+    """The name says it all. Do good tests."""
     import lib.functions as fun
     import lib.operations as ops
     import numpy as np
@@ -274,9 +271,52 @@ def construct_KpVsys(rv,ccf,dp,kprange=[0,300],dkp=1.0):
     return(Kp,KpVsys)
 
 
-def plot_ccf(rv,ccf,dp,xrange,Nticks = 10.0,title='',doppler_model = []):
+
+
+
+def plotting_scales_2D(rv,y,ccf,xrange,yrange,Nxticks=10.0,Nyticks=10.0,nsigma=3.0):
+    """This is a primer for plot_ccf, which defines the plotting ranges and colour
+    scale of a 2D CCF. It can probably be used generally for any 2D image."""
+    import numpy as np
+    import lib.functions as fun
+    #Define the plotting range of the images.
+    nrv=len(rv)
+    ny=len(y)
+    drv=rv[1]-rv[0]
+    dy=y[1]-y[0]
+    sel = ((rv >= xrange[0]) & (rv <=xrange[1]))
+    ccf_sub = ccf[:,sel]
+    sely = ((y >= yrange[0]) & (y <= yrange[1]))
+    ccf_sub = ccf_sub[sely,:]
+    vmin,vmax = fun.sigma_clip(ccf_sub,nsigma=nsigma)#Sigma clipping.
+    rvmin=rv[sel].min()
+    rvmax=rv[sel].max()
+    ymin=y[sely].min()
+    ymax=y[sely].max()
+    #This initiates the meshgrid onto which the 2D image is defined.
+    xmin = rvmin; xmax = rvmax; dx = drv#Generalization away from rv.
+    x2,y2 = np.meshgrid(np.arange(xmin,xmax+dx+dx,dx)-dx/2.,np.arange(ymin,ymax+dy+dy,dy)-dy/2.)
+    dxt = (xmax+dx - xmin) / Nxticks
+    dyt = (ymax+dy - ymin) / Nyticks
+    xticks = np.arange(xmin,xmax+dx,round(dxt,0))
+    yticks = np.arange(ymin,ymax+dy,round(dyt,0))
+    return(x2,y2,ccf_sub,rv[sel],xticks,yticks,vmin,vmax)
+
+
+
+
+
+def plot_ccf(rv,ccf,dp,xrange=[-200,200],yrange=[0,0],Nxticks=10.0,Nyticks=10.0,title='',doppler_model = [],i_legend=True,show=True):
     """This is a routine that does all the plotting of the cleaned 2D CCF.
-    I expect this to be an organic function that is adapted to my plotting needs."""
+    I expect this to be an organic function that is adapted to my plotting needs.
+    THIS CURRENTLY HAS CORE USAGE IN RUN_INSTANCE. DO GOOD TESTS AND WRITE GOOD DOCUMENTATION
+
+    If yrange is not set, it defaults to the entire y axis (see below).
+
+    STILL NEED TO ADD FUNCTIONALITY FOR NXTICKS AND NYTICKS SEPARATELY.
+    MAKE SURE THAT XRANGE AND YRANGE BEHAVE THE SAME.
+    INSTEAD OF DOPPLER_MODEL=[], ADD ARBITRARY LINES TO OVERPLOT.. with labels.
+    .. and tests on those."""
 
     import numpy as np
     import matplotlib.pyplot as plt
@@ -286,36 +326,19 @@ def plot_ccf(rv,ccf,dp,xrange,Nticks = 10.0,title='',doppler_model = []):
     import pylab as pl
     import lib.system_parameters as sp
     import lib.plotting as fancyplots
+    import lib.cleaning as cleaning
 
-    #Load necessary physics
+    #Load necessary physics for overplotting planet velocity.
     vsys = sp.paramget('vsys',dp)
     RVp = sp.RV(dp)+vsys
+    nexp = np.shape(ccf)[0]
 
-    #Define the extent of the images.
-    nrv=len(rv)
-    nexp=np.shape(ccf)[0]
-    y = fun.findgen(nexp)
-    drv=rv[1]-rv[0]
-    sel = ((rv >= xrange[0]) & (rv <=xrange[1]))
-    ccf_sub = ccf[:,sel]
-    m = np.nanmedian(ccf_sub)
-    s = np.nanstd(ccf_sub)
-    vmin = m-3.0*s
-    vmax = m+3.0*s
-    rvmin=rv[sel].min()
-    rvmax=rv[sel].max()
+    #Default to the entire y-axis if yrange = [0,0]
+    if all(v == 0 for v in yrange):
+        yrange=[0,nexp-1]
 
-    #This initiates the meshgrid.
-    xmin = rvmin; xmax = rvmax; dx = drv
-    ymin = 0; ymax = nexp-1; dy = 1
-    x2,y2 = np.meshgrid(np.arange(xmin,xmax+dx+dx,dx)-dx/2.,np.arange(ymin,ymax+dy+dy,dy)-dy/2.)
-    z = ccf_sub
 
-    dxt = (xmax+dx - xmin) / Nticks
-    dyt = (ymax+dy - ymin) / Nticks
-    xticks = np.arange(xmin,xmax+dx,round(dxt,0))
-    yticks = np.arange(ymin,ymax+dy,round(dyt,0))
-
+    x2,y2,z,rv_sel,xticks,yticks,vmin,vmax = plotting_scales_2D(rv,fun.findgen(nexp),ccf,xrange,yrange,Nxticks=Nxticks,Nyticks=Nyticks,nsigma=3.0)
     #The plotting
     fig,ax = plt.subplots(figsize=(12,6))
     img=ax.pcolormesh(x2,y2,z,vmin=vmin,vmax=vmax,cmap='hot')
@@ -323,16 +346,16 @@ def plot_ccf(rv,ccf,dp,xrange,Nticks = 10.0,title='',doppler_model = []):
     line1, = ax.plot(RVp,fun.findgen(nexp),'--',color='black',label='Planet rest-frame')
     if len(doppler_model) > 0:
         line2, = ax.plot(doppler_model+vsys,fun.findgen(nexp),'--',color='black',label='Doppler shadow')
-    pl.xticks(xticks)
-    pl.yticks(yticks)
+    ax.set_xticks(xticks)
+    ax.set_yticks(yticks)
     ax.set_title(title)
-    plt.xlabel('Radial velocity (km/s)')
-    plt.ylabel('Exposure')
+    ax.set_xlabel('Radial velocity (km/s)')
+    ax.set_ylabel('Exposure')
 
     #The colourbar
     cbar = plt.colorbar(img,format='%05.4f',aspect = 15)
-    cbar.set_norm(dcb.MyNormalize(vmin=vmin,vmax=vmax,stretch='linear'))
-    cbar = dcb.DraggableColorbar(cbar,img)
+    # cbar.set_norm(dcb.MyNormalize(vmin=vmin,vmax=vmax,stretch='linear'))
+    cbar = dcb.DraggableColorbar_fits(cbar,img,'hot')
     cbar.connect()
 
     #The clickable legend.
@@ -340,12 +363,30 @@ def plot_ccf(rv,ccf,dp,xrange,Nticks = 10.0,title='',doppler_model = []):
         lines = [line1, line2]
     else:
         lines = [line1]
-    fancyplots.interactive_legend(fig,ax,lines)
-    plt.show()
 
-def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],Nticks = 10.0,title=''):
+    if i_legend == True:
+        fancyplots.interactive_legend(fig,ax,lines)
+    if show == True:
+        plt.show()
+    return(fig,ax,cbar)
+
+
+
+
+
+
+
+
+
+
+
+def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],Nticks = 10.0,title='',invert=False):
     """This is a routine that does all the plotting of the KpVsys diagram.
-    I expect this to be an organic function that is adapted to my plotting needs."""
+    I expect this to be an organic function that is adapted to my plotting needs.
+    THIS CURRENTLY HAS CORE USAGE IN RUN_INSTANCE, DO GOOD TESTS AND WRITE GOOD
+    DOCUMENTATION.
+
+    EDIT: THIS IS ALMOST THE SAME AS PLOT_CCF ABOVE. NEED TO MERGE THESE."""
 
     import numpy as np
     import matplotlib.pyplot as plt
@@ -356,6 +397,9 @@ def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],Nticks = 10.0,title=''):
     import lib.system_parameters as sp
     import lib.plotting as fancyplots
 
+
+    if invert == True:
+        KpVsys*=(-1.0)
     #Load necessary physics
     vsys = sp.paramget('vsys',dp)
     vorb = sp.v_orb(dp)
@@ -398,8 +442,8 @@ def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],Nticks = 10.0,title=''):
 
     #The colourbar
     cbar = plt.colorbar(img,format='%05.4f',aspect = 15)
-    cbar.set_norm(dcb.MyNormalize(vmin=vmin,vmax=vmax,stretch='linear'))
-    cbar = dcb.DraggableColorbar(cbar,img)
+    # cbar.set_norm(dcb.MyNormalize(vmin=vmin,vmax=vmax,stretch='linear'))
+    cbar = dcb.DraggableColorbar_fits(cbar,img,'hot')
     cbar.connect()
 
     #The clickable legend.
@@ -407,3 +451,30 @@ def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],Nticks = 10.0,title=''):
 
     fancyplots.interactive_legend(fig,ax,lines)
     plt.show()
+
+
+
+def combine_KpVsys(list_of_datasets,list_of_templates):
+    """This small function takes the KpVsys output of multiple templates and
+    datasets (likely multiple nights on the same object, because different objects
+    do not have the same Kp) and averages them."""
+    import lib.utils as ut
+    import astropy.io.fits as fits
+    ut.typetest('list_of_templates in combine_KpVsys',list_of_templates,list)
+    ut.typetest('list_of_datasets in combine_KpVsys',list_of_datasets,list)
+
+    Nd = len(list_of_datasets)
+    Nt = len(list_of_templates)
+    list_of_KpVsys = []
+    for i in range(Nd):
+        for j in range(Nt):
+            inpath = 'output/'+list_of_datasets[i]+'/'+list_of_templates[j]+'/KpVsys.fits'
+            list_of_KpVsys.append(fits.getdata(inpath))
+
+
+    Nk=len(list_of_KpVsys)
+    KpVsys_combined = list_of_KpVsys[0]*0.0
+    for i in range(Nk):
+        KpVsys_combined+=list_of_KpVsys[i]
+
+    return(KpVsys_combined/Nk)
