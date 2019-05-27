@@ -1,3 +1,7 @@
+#This package contains everything related to reading and manipulating model spectra
+#for injection and for template-construction.
+
+
 def model_from_phoenix(wlpath,fxpath,outpath):
     """This code reads the WAVE and SPEC files as downloaded from the PHOENIX
     home page (http://phoenix.astro.physik.uni-goettingen.de/?page_id=15) and
@@ -66,7 +70,7 @@ def get_model(name,library='models/library'):
 
 
 
-def inject_model(wld,order,dp,modelname):
+def inject_model(wld,order,dp,modelname,model_library='library/models'):
     """This function takes a spectral order and injects a model with library
     identifier modelname, and system parameters as defined in dp.
     Maybe it would be more efficient to provide wlm and fxm from outside this
@@ -98,7 +102,7 @@ def inject_model(wld,order,dp,modelname):
     P=sp.paramget('P',dp)
 
     #t1=ut.start()
-    wlm,fxm=get_model(modelname)
+    wlm,fxm=get_model(modelname,library=model_library)
     #t2=ut.end(t1)
     #pdb.set_trace()
 
@@ -193,7 +197,7 @@ def normalize_model():
 
 
 
-def build_template(templatename,binsize=1.0,maxfrac=0.01,mode='top',resolution=0.0,twopass=False):
+def build_template(templatename,binsize=1.0,maxfrac=0.01,mode='top',resolution=0.0,twopass=False,template_library='models/library'):
     """This routine reads a specified model from the library and turns it into a
     cross-correlation template by subtracting the top-envelope (or bottom envelope)"""
 
@@ -215,7 +219,7 @@ def build_template(templatename,binsize=1.0,maxfrac=0.01,mode='top',resolution=0
 
     if mode != 'top' and mode != 'bottom':
         raise Exception('ERROR in build_template. Mode should be set to "top" or "bottom."')
-    wlt,fxt=get_model(templatename)
+    wlt,fxt=get_model(templatename,library=template_library)
 
     if wlt[-1] <= wlt[0]:#Reverse the wl axis if its sorted the wrong way.
         wlt=np.flipud(wlt)
@@ -283,3 +287,31 @@ def read_binary_mask(inpath,R=1000000.0):
         fx[sel]=weight
 
     return wl,fx
+
+
+def make_library_KELT_9(inpath):
+    """This creates a library file using all model fits files of the Kelt-9 survey.
+    Set inpath and outpath starting in the models folder."""
+    import os
+    paths = []
+    species = []
+    for file in os.listdir('models/'+inpath):
+        if file.endswith(".fits"):
+            paths.append(os.path.join(inpath+'/', file))
+            filename = file.split('.')[0]
+            parts = filename.split('_')
+            N = len(parts)
+            if N == 3:
+                specie = parts[2]+'I'
+            if N == 4:
+                if len(parts[3]) == 1:
+                    specie = parts[2]+'II'
+                if len(parts[3]) == 2:
+                    specie = parts[2]+'III'
+            species.append(specie)
+
+    N = len(paths)
+    f = open('models/library_KELT_9', 'w')
+    for i in range(N):
+        f.write(species[i]+'   '+paths[i]+'   '+'3000000.0\n')
+    f.close()
