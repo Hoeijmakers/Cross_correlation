@@ -8,13 +8,15 @@ def sigma_clip(array,nsigma=3.0):
     vmax = m+nsigma*s
     return vmin,vmax
 
-def selmax(y,p,s=0.0):
+def selmax(y_in,p,s=0.0):
     """This program returns the p (fraction btw 0 and 1) highest points in y,
     ignoring the very top s % (default zero, i.e. no points ignored), for the
     purpose of outlier rejection."""
     import lib.utils as ut
     import numpy as np
+    import copy
     ut.postest(p)
+    y=copy.deepcopy(y_in)#Copy itself, or there are pointer-related troubles...
     if s < 0.0:
         raise Exception("ERROR in selmax: s should be zero or positive.")
     if p >= 1.0:
@@ -22,9 +24,9 @@ def selmax(y,p,s=0.0):
     if s >= 1.0:
         raise Exception("ERROR in selmax: s should be strictly less than 1.0.")
     ut.postest(-1.0*p+1.0)
-    ut.nantest('y in selmax',y)
+    #ut.nantest('y in selmax',y)
     ut.dimtest(y,[0])#Test that it is one-dimensional.
-
+    y[np.isnan(y)]=np.nanmin(y)#set all nans to the minimum value such that they will not be selected.
     y_sorting = np.flipud(np.argsort(y))#These are the indices in descending order (thats why it gets a flip)
     N=len(y)
     if s == 0.0:
