@@ -2,19 +2,40 @@
 def plot_KpVsyses_Wasp_121():
     import astropy.io.fits as fits
     import lib.analysis as an
-    Lt = ['NaI','MgI','AlI','SiI','CaI','ScI','ScII','TiI','TiII','VI','VII','CrI','CrII','MnI','FeI','FeII','CoI','NiI','W121-TiO']
+    Lt = ['LiI','NaI','MgI','CaI','KI','ScI','ScII','TiI','TiII','VI','VII','CrI','CrII','MnI','MnII','FeI','FeII','NiI','NiII','CuI','CoI','CoII','ZnI','SrI','SrII','YI','YII','RbI']
     Ld = ['Wasp-121/night1','Wasp-121/night2','Wasp-121/night3']
-
-    Kp = fits.getdata('output/'+Ld[0]+'/'+Lt[0]+'/Kp.fits')
-    RV = fits.getdata('output/'+Ld[0]+'/'+Lt[0]+'/RV.fits')
+    Lm = ['KI','ScI','MnI','NiI','CuI','CoI','ZnI','YI']
+    for i in range(len(Lm)):
+        Lm[i]+='_2500K'
+    ts = Lt[0]+'_2500K'
+    Kp = fits.getdata('output/'+Ld[0]+'/'+ts+'/Kp.fits')
+    RV = fits.getdata('output/'+Ld[0]+'/'+ts+'/RV.fits')
     dp = 'data/Wasp-121/night3/' #But should be the same for all three nights.
     N = len(Lt)
+    KpVsys = an.combine_KpVsys(Ld,Lm)
+    an.plot_KpVsys(RV,Kp,KpVsys,dp,xrange=[-100,100],Nticks = 10.0,title='Metals',invert=True)
 
     for i in range(N):
-        KpVsys = an.combine_KpVsys(Ld,[Lt[i]])
+        KpVsys = an.combine_KpVsys(Ld,[Lt[i]+'_2500K'])
         an.plot_KpVsys(RV,Kp,KpVsys,dp,xrange=[-100,100],Nticks = 10.0,title=Lt[i],invert=True)
 
+def plot_model(species):
+    import matplotlib.pyplot as plt
+    import lib.models as m
+    name=species+'_2500K'
+    wl,fx=m.get_model(name,library='models/library_WASP_121')
+    plt.plot(wl,fx)
+    plt.show()
 
+
+def convert_models_daniel_wasp121():
+    import lib.models as m
+    p = '/Volumes/TOSHIBA/WASP-121/Grid_Daniel_Wasp-121/Xcor_templates/templates_1500K/'
+    Rstar = 1.458#Rsun
+    m.convert_models_daniel(p,Rstar,'models/WASP-121/templates_daniel/','1500K_1_')
+    p = '/Volumes/TOSHIBA/WASP-121/Grid_Daniel_Wasp-121/Xcor_templates/templates_2500K/'
+    m.convert_models_daniel(p,Rstar,'models/WASP-121/templates_daniel/','2500K_1_')
+# convert_models_daniel_wasp121()
 
 def read_noise_csv(filename,wl):
     import csv
@@ -330,6 +351,70 @@ def plot_spec():
     print(np.shape(b))
     plt.plot(b[1,n,:]/ii,b[0,n,:]/b[2,n,:])
     plt.show()
+
+
+
+def plot_model_presentation():
+    import lib.models as m
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import scipy.interpolate as int
+    import pdb
+    from scipy.signal import savgol_filter
+    import lib.utils as ut
+
+    t1 = ut.start()
+    wl,fx1 = m.get_model('W121-TiO')
+    wl2,fx2 = m.get_model('FeII',library='models/library_KELT_9')
+    wl3,fx3 = m.get_model('OII',library='models/library_KELT_9')
+    wl4,fx4 = m.get_model('NaI',library='models/library_KELT_9')
+
+    fx1c = fx1 - np.max(fx1)
+    fx2c = fx2 - np.max(fx2)
+    fx3c = fx3 - np.max(fx3)
+    fx4c = fx4 - np.max(fx4)
+
+    fx2c_i = int.interp1d(wl2,fx2c)
+    fx3c_i = int.interp1d(wl3,fx3c)
+    fx4c_i = int.interp1d(wl4,fx4c)
+
+    fx2c = fx2c_i(wl)
+    fx3c = fx3c_i(wl)
+    fx4c = fx4c_i(wl)
+
+    fx3c = np.flip(fx3c*15.0,0)
+
+    fx_final = []
+
+    for i in range(len(wl)):
+        fx_final.append(np.min([fx1c[i],fx2c[i],fx3c[i],fx4c[i]]))
+
+    dx = 15000
+    fx_final = np.array(fx_final)
+
+
+    wlb = []
+    fxb = []
+    i = 0
+    while (i+1)*dx < len(wl):
+        wlb.append(np.mean(wl[i*dx:(i+1)*dx]))
+        fxb.append(np.mean(fx_final[i*dx:(i+1)*dx]*100.0))
+        i+=1
+
+    t2 = ut.end(t1)
+    plt.rcParams.update({'font.size': 60})
+    fig = plt.figure(figsize=(40,30))
+    ax = fig.add_subplot(111)
+    ax.plot(wl,fx_final*100.0,linewidth=3.0,color='tomato')
+    ax.plot(wlb,fxb,'.',color='black',ms=50)
+    ax.plot(wlb,fxb,color='black',linewidth = 10)
+    ax.set_xlabel('Wavelength (nm)')
+    ax.set_ylabel('Transit depth (%)')
+    ax.set_xlim((400,700))
+    for axis in ['top','bottom','left','right']:
+        ax.spines[axis].set_linewidth(6.0)
+    plt.savefig('Wasp_121_demo.png', transparent=True)
+
 
 #plot_spec()
 #HST_proposal()
