@@ -266,7 +266,6 @@ def constant_velocity_wl_grid(wl,fx,oversampling=1.0):
     ut.nantest('wl',wl)
     ut.nantest('fx',fx)
 
-
     if oversampling <= 0.0:
         raise Exception("ERROR in constant velocity wl grid: oversampling should be positive and finite.")
 
@@ -476,6 +475,13 @@ def airtovac(wlnm):
     n = 1 + 0.00008336624212083 + 0.02408926869968 / (130.1065924522 - s**2) + 0.0001599740894897 / (38.92568793293 - s**2)
     return(wlA*n/10.0)
 
+def vactoair(wlnm):
+    wlA = wlnm*10.0
+
+    s = 1e4/wlA
+    f = 1.0 + 5.792105e-2/(238.0185e0 - s**2) + 1.67917e-3/( 57.362e0 - s**2)
+    return(wlA/f/10.0)
+
 def normalize_orders(list_of_orders):
     import numpy as np
     import lib.functions as fun
@@ -585,3 +591,34 @@ def measure_rv(RV,CCF1D,dv=15.0,plot=False):
         plt.plot(RV,fun.gaussian(RV,fit[0],fit[1],fit[2],cont=fit[3]))
         plt.show()
     return(fit[1])
+
+
+def quick_xcor(wl,fx,wlm,fxm,dv,rvrange):
+    import lib.constants as const
+    import numpy as np
+    import lib.functions as fun
+    import scipy.interpolate
+    import lib.utils as ut
+    c=const.c/1000.0
+    RV=fun.findgen(2.0*rvrange/dv+1)*dv-rvrange#..... CONTINUE TO DEFINE THE VELOCITY GRID
+    shift=1.0+RV/c#Array along which the template will be shifted during xcor.
+
+    CCF = fun.findgen(len(shift))*0.0#*float('NaN')
+    Tsums = fun.findgen(len(shift))*0.0*float('NaN')
+    counter = 0
+    for i in range(len(shift)):
+        T_sum = 0.0
+        wlms=wlm*shift[i]
+
+
+        T_i=scipy.interpolate.interp1d(wlms[(wlms >= np.min(wl)-10.0) & (wlms <= np.max(wl)+10.0)],fxm[(wlms >= np.min(wl)-10.0) & (wlms <= np.max(wl)+10.0)])
+        T=T_i(wl)#Interpolated onto wl
+        CCF[i]+=np.nansum(T*fx)
+        T_sum+=np.sum(np.abs(T))#ARE THESE TWO CORRECT? CHECK IT! DO THE MATH
+            #Will do when the error propagation comes in.
+        CCF[i] /= T_sum
+        Tsums[i] = T_sum
+        T_sum = 0.0
+        counter += 1
+        ut.statusbar(i,shift)
+    return(RV,CCF)

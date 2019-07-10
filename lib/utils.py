@@ -2,6 +2,9 @@
 #easier, such as a wrapper for measuring elapsed time, all sorts of variable tests,
 #and quickly saving fits files.
 
+def statusbar(i,x):
+    print('  '+f"{i/(len(x)-1)*100:.1f} %", end="\r")#Statusbar.
+
 def start():
     import time
     return(time.time())

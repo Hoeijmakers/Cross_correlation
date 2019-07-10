@@ -272,7 +272,7 @@ def read_binary_mask(inpath,R=1000000.0):
     try:
         f = open(inpath, 'r')
     except FileNotFoundError:
-        raise Exception('Configfile does not exist at %s' % inpath) from None
+        raise Exception('mask file does not exist at %s' % inpath) from None
     x = f.read().splitlines()
     f.close()
     n_lines=len(x)
@@ -293,8 +293,10 @@ def make_library_KELT_9(inpath):
     """This creates a library file using all model fits files of the Kelt-9 survey.
     Set inpath and outpath starting in the models folder."""
     import os
+    import pdb
     paths = []
     species = []
+    Ts = []
     for file in os.listdir('models/'+inpath):
         if file.endswith(".fits"):
             paths.append(os.path.join(inpath+'/', file))
@@ -309,9 +311,76 @@ def make_library_KELT_9(inpath):
                 if len(parts[3]) == 2:
                     specie = parts[2]+'III'
             species.append(specie)
-
+            Ts.append(parts[0])
     N = len(paths)
-    f = open('models/library_KELT_9', 'w')
+    f = open('models/library_WASP_121', 'w')
     for i in range(N):
-        f.write(species[i]+'   '+paths[i]+'   '+'3000000.0\n')
+        f.write(species[i]+'_'+Ts[i]+'   '+paths[i]+'   '+'3000000.0\n')
     f.close()
+
+
+
+
+
+
+
+
+def convert_models_daniel(infolder,Rstar,outfolder,prefix):
+    """This code reads daniels model spectra from a folder. Daniel formats his templates
+    such that each element has its own subfolder, and this is what is assumed.
+    So infolder is the root that contains all the folders of the elements, each of
+    which contains a binary file that is converted by the function below."""
+
+    import os
+    import os.path
+    import astropy.io.ascii as ascii
+    import lib.constants as const
+    import numpy as np
+    import lib.utils as ut
+    import sys
+    import pdb
+    import glob
+    import matplotlib.pyplot as plt
+    if os.path.isdir(outfolder) == False:
+        os.makedirs(outfolder)
+    Rs = Rstar*const.Rsun/1000.0 #km
+    templates = os.listdir(infolder)
+    grid = ascii.read(infolder+'spectral_grid.dat')
+    wl = grid['col1'].data*1000.0
+    out = np.zeros((2,len(wl)))
+    out[0,:] = wl
+    N = len(templates)
+    for i in range(N):
+        path = infolder+templates[i]
+        if os.path.isdir(path):
+            file = glob.glob(path+'/transit*')
+            R = np.array(read_binary_model_daniel(file[0]))/Rs # in km.
+            out[1,:] = 1.0-np.squeeze(R*R)
+            ut.writefits(outfolder+'/'+prefix+templates[i]+'.fits',out)
+        print('%s / %s' % (i,N))
+
+
+
+def read_binary_model_daniel(inpath):
+    """This reads a binary model spectrum (those created by Daniel Kitzmann)
+    located at path inpath."""
+    import pdb
+    import struct
+    import lib.utils as ut
+    import sys
+    ut.typetest('inpath in read_binary_model_daniel',inpath,str)
+
+    r = []
+    try:
+        f = open(inpath,'rb')
+    except FileNotFoundError:
+        print('ERROR in read_binary_model_daniel: file %s not found.' % inpath)
+        sys.exit()
+    while True:
+        seq = f.read(8)
+        if not seq:
+            break
+        else:
+            r.append(struct.unpack('d',seq))
+    f.close()
+    return(r)
