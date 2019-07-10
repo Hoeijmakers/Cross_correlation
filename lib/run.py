@@ -2,7 +2,7 @@
 
 
 
-def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.0,do_colour_correction=True,do_xcor=True,plot_xcor=False,do_berv_correction=True,do_keplerian_correction = True,make_doppler_model=True,model_library='models/library',template_library='models/library',skip_doppler_model = False):
+def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500.0,drv=1.0,do_colour_correction=True,do_xcor=True,plot_xcor=False,do_berv_correction=True,do_keplerian_correction = True,make_doppler_model=True,model_library='models/library',template_library='models/library',skip_doppler_model = False,make_mask=False,apply_mask=True):
     """This is the main script that runs through the entire sequence of steps."""
     import numpy as np
     from lib import utils as ut
@@ -15,6 +15,8 @@ def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.
     from lib import cleaning
     from lib import read_data as rd
     from lib import system_parameters as sp
+    from lib import masking as masking
+    from lib import shadow as shadow
     from astropy.io import fits
     from matplotlib import pyplot as plt
     from scipy import interpolate
@@ -25,6 +27,7 @@ def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.
     import sys
     import glob
     import distutils.util
+
 
 #Need to build in a lot of tests here on the input.
 
@@ -49,18 +52,18 @@ def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.
     air = bool(distutils.util.strtobool(sp.paramget('air',dp)))#Read bool from str in config file.
 
     #Loading the data from the datafolder.
-    if do_xcor == True or plot_xcor == True:
-        print('Reading orders from '+dp)
+    if do_xcor == True or plot_xcor == True or make_mask == True:
+        print('---Reading orders from '+dp)
         t1=ut.start()
         for i in range(startorder,endorder+1):
             if air == False:
-                if trigger1 ==0:
+                if i == startorder:
                     trigger1=-1
-                    print("Assuming wavelengths are in vaccuum.")
+                    print("------Assuming wavelengths are in vaccuum.")
                 list_of_wls.append(fits.getdata(dp+'wave_%s.fits' % i))
             else:
-                if trigger1 ==0:
-                    print("Applying airtovac correction.")
+                if i == startorder:
+                    print("------Applying airtovac correction.")
                     trigger1 =-1
                 list_of_wls.append(ops.airtovac(fits.getdata(dp+'wave_%s.fits' % i)))
             order_i = fits.getdata(dp+'order_%s.fits' % i)
@@ -71,18 +74,21 @@ def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.
                 list_of_sigmas.append(fits.getdata(dp+'sigma_%s.fits' % i))
             except FileNotFoundError:
                 if trigger2 == 0:
-                    print('WARNING: SIGMA FILE NOT PROVIDED. ASSUMING SIGMA = SQRT(FLUX). This is ok for HARPS data.')
+                    print('------WARNING: SIGMA FILE NOT PROVIDED. ASSUMING SIGMA = SQRT(FLUX). This is ok for HARPS data.')
                     trigger2=-1
                 list_of_sigmas.append(np.sqrt(order_i))
         t2=ut.end(t1)
 
-    t1 = ut.start()
-    list_of_orders = cleaning.mask_orders(list_of_orders,40.0,5.0)
-    t2 = ut.end(t1)
-    print("NEED TO ADD A GUI IN HERE THAT ENABLES MASKING!")
-    print("And in the end, the adopted output of all these guis needs to be collected")
-    print("into a single sort of report, so that at the time of paper writing, its easy")
-    print(" to see which numbers were used.")
+
+    #Do masking or not.
+    if make_mask == True:
+        print('---Constructing mask ')
+        masking.mask_orders(list_of_wls,list_of_orders,dp,maskname,40.0,0.0,manual=True)
+        if apply_mask == False:
+            print('---Warning in run_instanace: Mask was made but is not applied to data (apply_mask = False)')
+    if apply_mask == True:
+        print('---Applying mask')
+        list_of_orders = masking.apply_mask_from_file(dp,maskname,list_of_orders)
 
 
 #The following tests inject_model
@@ -95,11 +101,11 @@ def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.
 #Need to normalize the orders to their average flux in order to effectively apply
 #a broad-band colour correction (colour is a function of airmass and seeing)
     if do_xcor == True and do_colour_correction == True:
-        print('Normalizing orders to common flux level')
+        print('---Normalizing orders to common flux level')
         list_of_orders = ops.normalize_orders(list_of_orders)
     #The following performs continuum normalization for template construction.
     if do_xcor == True or plot_xcor == True:
-        print('Building template')
+        print('---Building template')
         t1=ut.start()
         wlt,T=models.build_template(templatename,binsize=0.5,maxfrac=0.01,resolution=120000.0,template_library=template_library)
         t2=ut.end(t1)
@@ -148,21 +154,21 @@ def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.
 #Perform the cross-correlation on the entire list of orders.
 
     if do_xcor == True:
-        print('Starting cross-correlation')
+        print('---Starting cross-correlation')
         t1=ut.start()
         rv,ccf,ccf_e,Tsums=analysis.xcor(list_of_wls,list_of_orders,np.flipud(np.flipud(wlt)),T,drv,RVrange,list_of_errors=list_of_sigmas)
         t2=ut.end(t1)
-        print('Writing output to '+outpath)
+        print('---Writing output to '+outpath)
         ut.writefits(outpath+'ccf.fits',ccf)
         ut.writefits(outpath+'ccf_e.fits',ccf_e)
         ut.writefits(outpath+'RV.fits',rv)
         ut.writefits(outpath+'Tsum.fits',Tsums)
     else:
-        print('Reading CCFs from '+outpath)
+        print('---Reading CCFs from '+outpath)
         try:
             f = open(outpath+'ccf.fits', 'r')
         except FileNotFoundError:
-            print('--- ERROR: Necessary output not located at '+outpath+'. Set do_xcor to True.')
+            print('------ERROR: Necessary CCF output not located at '+outpath+'. Set do_xcor to True.')
             sys.exit()
         rv=fits.getdata(outpath+'rv.fits')
         ccf = fits.getdata(outpath+'ccf.fits')
@@ -180,7 +186,7 @@ def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.
         rv_cor-=sp.RV_star(dp)
 
     if type(rv_cor) != int:
-        print('Performing velocity corrections')
+        print('---Performing velocity corrections')
         ccf_cor = ops.shift_ccf(rv,ccf,rv_cor)
         ccf_e_cor = ops.shift_ccf(rv,ccf_e,rv_cor)
     else:
@@ -189,45 +195,46 @@ def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.
 
 
     if plot_xcor == True:
-        print('Plotting orders and XCOR')
+        print('---Plotting orders and XCOR')
         fitdv = sp.paramget('fitdv',dp)
         analysis.plot_XCOR(list_of_wls,list_of_orders,wlt,T,rv,ccf_cor,Tsums,dp,CCF_E=ccf_e_cor,dv=fitdv)
 
-
-
-    print('Cleaning CCFs')
+    print('---Cleaning CCFs')
     ccf_n,ccf_ne,ccf_nn = cleaning.clean_ccf(rv,ccf_cor,ccf_e_cor,dp)
+    ut.save_stack('test2.fits',[ccf,ccf_cor,ccf_n,ccf_nn])
+    sys.exit()
     ut.writefits(outpath+'ccf_normalized.fits',ccf_nn)
     ut.writefits(outpath+'ccf_ne.fits',ccf_ne)
 
     # print('Building and removing Doppler Model')
     # print('THIS IS STILL HARDCODED TO WASP-121!')
-    # doppler_rv,ccf_ds_model = cleaning.construct_doppler_model_vincent(dp+'../shadow_model_vincent.dat.txt',dp,rv,ccf_nn)
+    # doppler_rv,ccf_ds_model = shadow.construct_doppler_model_vincent(dp+'../shadow_model_vincent.dat.txt',dp,rv,ccf_nn)
     # ccf_clean = ccf_nn - ccf_ds_model
 
 
     if make_doppler_model == True and skip_doppler_model == False:
-        cleaning.construct_doppler_model(rv,ccf_nn,dp,shadowname,xrange=[-200,200],Nxticks=20.0,Nyticks=10.0)
+        shadow.construct_doppler_model(rv,ccf_nn,dp,shadowname,xrange=[-200,200],Nxticks=20.0,Nyticks=10.0)
 
     if skip_doppler_model == False:
-        print('Reading model from '+shadowname)
-        doppler_model,maskHW = cleaning.read_shadow(shadowname,rv,ccf)
-        ccf_clean,matched_ds_model = cleaning.match_shadow(rv,ccf_nn,dp,doppler_model,maskHW)
+        print('---Reading doppler shadow model from '+shadowname)
+        doppler_model,maskHW = shadow.read_shadow(dp,shadowname,rv,ccf)
+        ccf_clean,matched_ds_model = shadow.match_shadow(rv,ccf_nn,dp,doppler_model,maskHW)
     else:
+        print('---Not performing shadow correction')
         ccf_clean = ccf_nn*1.0
         matched_ds_model = ccf_clean*0.0
     ut.save_stack(outpath+'cleaning_steps.fits',[ccf,ccf_cor,ccf_nn,ccf_clean,matched_ds_model])
     ut.writefits(outpath+'ccf_cleaned.fits',ccf_clean)
 
     if plot_xcor == True:
-        print('Plotting 2D CCF')
-        print("THIS NEEDS TO BE REVAMPED!")
+        print('---Plotting 2D CCF')
+        print("---THIS NEEDS TO BE REVAMPED!")
         # analysis.plot_ccf(rv,ccf_nn,dp,xrange=[-200,200],Nticks=20.0,doppler_model = doppler_rv)
         # analysis.plot_ccf(rv,ccf_ds_model,dp,xrange=[-200,200],Nticks=20.0,doppler_model = doppler_rv)
         # analysis.plot_ccf(rv,ccf_clean,dp,xrange=[-200,200],Nticks=20.0,doppler_model = doppler_rv)
 
 
-    print('Constructing KpVsys')
+    print('---Constructing KpVsys')
     t1=ut.start()
     Kp,KpVsys = analysis.construct_KpVsys(rv,ccf_clean,dp)
     ut.end(t1)
@@ -236,7 +243,7 @@ def run_instance(dataname,modelname,templatename,shadowname,RVrange=500.0,drv=1.
 
 
     if plot_xcor == True:
-        print('Plotting KpVsys')
+        print('---Plotting KpVsys')
         analysis.plot_KpVsys(rv,Kp,KpVsys,dp)
 
 
