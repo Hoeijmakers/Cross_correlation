@@ -1,3 +1,21 @@
+def nan_helper(y):
+    """Helper to handle indices and logical indices of NaNs.
+
+    Input:
+        - y, 1D (!!) numpy array with possible NaNs
+    Output:
+        - nans, logical indices of NaNs
+        - index, a function, with signature indices= index(logical_indices),
+          to convert logical indices of NaNs to 'equivalent' indices
+    Example:
+        >>> # linear interpolation of NaNs
+        >>> nans, x= nan_helper(y)
+        >>> y[nans]= np.interp(x(nans), x(~nans), y[~nans])
+    """
+    #This comes from https://stackoverflow.com/questions/6518811/interpolate-nan-values-in-a-numpy-array
+    import numpy as np
+    return np.isnan(y), lambda z: z.nonzero()[0]
+
 def sigma_clip(array,nsigma=3.0):
     """This returns the edge values of a sigma-clipping operation.
     Write tests and documentation please."""
@@ -119,13 +137,16 @@ def box(x,A,c,w):
     return y*A
 
 
-def findgen(n):
+def findgen(n,int=False):
     """This is basically IDL's findgen function.
     a = findgen(5) will return an array with 5 elements from 0 to 4:
     [0,1,2,3,4]
     """
     import numpy as np
-    return np.linspace(0,n-1,n)
+    if int:
+        return np.linspace(0,n-1,n).astype(int)
+    else:
+        return np.linspace(0,n-1,n)
 
 
 def rebinreform(a,n):
@@ -199,5 +220,4 @@ def running_MAD_2D(z,w):
         minx = max([0,i-int(0.5*w)])
         maxx = min([nx-1,i+int(0.5*w)])
         s[i] = stats.mad_std(z[:,minx:maxx],ignore_nan=True)
-
     return(s)

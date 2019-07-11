@@ -1,3 +1,84 @@
+def interpolate_over_NaNs(list_of_orders,cutoff=0.2):
+    import numpy as np
+    import lib.functions as fun
+    import pdb
+    import lib.utils as ut
+    import sys
+    """This function loops through a list of orders, over the individual
+    spectra in each order, and interpolates over the NaNs. It uses the manual provided at
+    https://stackoverflow.com/questions/6518811/interpolate-nan-values-in-a-numpy-array
+    which I duplicate here:
+
+    Lets define first a simple helper function in order to make it more straightforward to handle indices and logical indices of NaNs:
+
+    import numpy as np
+
+    def nan_helper(y):
+    #Helper to handle indices and logical indices of NaNs.
+    #Input:
+    #    - y, 1d numpy array with possible NaNs
+    #Output:
+    #    - nans, logical indices of NaNs
+    #    - index, a function, with signature indices= index(logical_indices),
+    #      to convert logical indices of NaNs to 'equivalent' indices
+    #Example:
+    #    >>> # linear interpolation of NaNs
+    #    >>> nans, x= nan_helper(y)
+    #    >>> y[nans]= np.interp(x(nans), x(~nans), y[~nans])
+
+    return np.isnan(y), lambda z: z.nonzero()[0]
+
+    Now the nan_helper(.) can now be utilized like:
+
+    >>> y= array([1, 1, 1, NaN, NaN, 2, 2, NaN, 0])
+    >>>
+    >>> nans, x= nan_helper(y)
+    >>> y[nans]= np.interp(x(nans), x(~nans), y[~nans])
+    >>>
+    >>> print y.round(2)
+    [ 1.    1.    1.    1.33  1.67  2.    2.    1.    0.  ]
+    """
+
+    ut.typetest('cutoff in interpolate_over_NaNs',cutoff,float)
+    if cutoff <= 0  or cutoff > 1:
+        print('ERROR in interpolate_over_NaNs: cutoff should be between 0 or 1 (not including 0).')
+        sys.exit()
+
+
+    N = len(list_of_orders)
+    list_of_healed_orders = []
+    for i in range(len(list_of_orders)):
+        order = list_of_orders[i]*1.0#x1 to copy it, otherwise the input is altered backwardly.
+        shape  = np.shape(order)
+        nexp = shape[0]
+        npx = shape[1]
+        list_of_masked_columns = []#This will contain the column numbers to mask completely at the end.
+        if np.sum(np.isnan(order)) > 0:
+            #So this order contains NaNs.
+            #First we loop over all columns to try to find columns where the number
+            #of NaNs is greater than CUTOFF.
+            for j in range(npx):
+                column = order[:,j]
+                N_nans = np.sum(np.isnan(column))
+                if N_nans > cutoff*nexp:
+                    list_of_masked_columns.append(j)
+            for k in range(nexp):
+                spectrum = order[k,:]
+                nans,x= fun.nan_helper(spectrum)
+                if np.sum(nans) > 0:
+                    spectrum_healed = spectrum*1.0
+                    #There are nans in this spectrum.
+                    spectrum_healed[nans]= np.interp(x(nans), x(~nans), spectrum[~nans])
+                    order[k,:] = spectrum_healed
+
+        if len(list_of_masked_columns) > 0:
+            for l in list_of_masked_columns:
+                order[:,l]+=np.nan
+        list_of_healed_orders.append(order)
+    return(list_of_healed_orders)
+
+
+
 class mask_maker(object):
     #This is my third home-made class: A GUI for masking pixels in the spectrum.
 
@@ -627,6 +708,7 @@ def mask_orders(list_of_wls,list_of_orders,dp,maskname,w,c_thresh,manual=False):
                 order[sel] = np.nan
             list_of_masks.append(order*0.0)
             ut.statusbar(i,void)
+
         print('%s outliers identified and set to NaN (%s %%).' % (N_NaN,round(N_NaN/np.size(list_of_masks)*100.0,3)))
     else:
         print('------Skipping sigma-clipping (c_thres <= 0)')
