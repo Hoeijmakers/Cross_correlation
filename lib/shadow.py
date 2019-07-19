@@ -150,14 +150,16 @@ def prime_doppler_model(fig,ax,cbar):
 
 
 
-def evaluate_shadow(params,rv,ccf,transit,phase,aRstar,vsys,inclination,n_components,leastsq=True):
+def evaluate_shadow(params,rv,ccf,transit,phase,aRstar,vsys,inclination,n_components,offset_second_component,leastsq=True):
     import numpy as np
     import lib.functions as fun
     import pdb
     """This evaluates the doppler shadow model. Primary usage is in leastsq and in evaluation
     of its output. Still need to write good documentation and tests. If leastsq is true, it
     returns the flattened difference between the input CCF and the model. If it is set to false,
-    it just returns the model; and the ccf object is ignored."""
+    it just returns the model; and the ccf object is ignored.
+
+    Offset is the velocity offset of the second component."""
     modelled_ccf = ccf*0.0
     modelled_ccf[np.isnan(modelled_ccf)] = 0.0
     nexp = np.shape(ccf)[0]
@@ -173,7 +175,7 @@ def evaluate_shadow(params,rv,ccf,transit,phase,aRstar,vsys,inclination,n_compon
     for i in range(nexp):
         modelled_ccf[i,:] = transit[i]*A * np.exp(-(rv-v_star[i])**2 / (2.0*W**2)) + C
         if n_components == 2:
-            modelled_ccf[i,:] += transit[i]*A2 * np.exp(-(rv-v_star[i])**2 / (2.0*W2**2))
+            modelled_ccf[i,:] += transit[i]*A2 * np.exp(-(rv-v_star[i]-offset_second_component)**2 / (2.0*W2**2))
     if leastsq == True:
         diffs = modelled_ccf - ccf
         diffs[np.isnan(diffs)] = 0.0
@@ -208,7 +210,8 @@ def read_shadow(dp,shadowname,rv,ccf):
     i = d["inclination"]
     n_c = d["n_components"]
     maskHW = d["maskHW"]
-    return(evaluate_shadow(params,rv,ccf,T,p,aRstar,vsys,i,n_c,leastsq=False),maskHW)
+    offset = d["offset"]#Offset of second component.
+    return(evaluate_shadow(params,rv,ccf,T,p,aRstar,vsys,i,n_c,offset,leastsq=False),maskHW)
 
 
 def match_shadow(rv,ccf,dp,doppler_model,maskHW):
@@ -235,8 +238,8 @@ def match_shadow(rv,ccf,dp,doppler_model,maskHW):
         return(diff.flatten())
     result = scipy.optimize.leastsq(scale_shadow,[0.5,0.0],args = (doppler_model,masked_ccf))
     print(result[0][0],result[0][1])#WHY IS THIS NOT EXACTLY 1.0???
-    print('IF THIS IS NOT EXACTLY 1 FOR THE SPECIES FOR WHICH THE MODEL IS MADE, IT NEEDS')
-    print('TO BE DIAGNOSED!')
+    print('IF THIS IS NOT EXACTLY 1 FOR THE SPECIES FOR WHICH THE MODEL IS MADE,')
+    print('IT NEEDS TO BE DIAGNOSED!')
     matched_model = result[0][0]*doppler_model+result[0][1]
     return(ccf - matched_model,matched_model)
 
@@ -274,6 +277,7 @@ class fit_doppler_model(object):
         self.inclination = sp.paramget('inclination',dp)
         self.n_components = 1
         self.maskHW = 10.0 #Default masking half-width
+        self.offset = 0.0
         if dp[-1] == '/':
             self.outpath = dp+outname+'.pkl'
         else:
@@ -322,15 +326,15 @@ class fit_doppler_model(object):
             import scipy.optimize
             import numpy as np
             import lib.functions as fun
-
+            print(self.offset)
             A_start = np.max(np.abs(self.ccf))
             C_start = np.nanmedian(self.ccf)
             W_start = 5.0#km/s.
             A2_start = A_start * (-0.2)
             W2_start = 12.0#km/s.
             startparams = [A_start,self.l_fit,self.vsini_fit,W_start,C_start,A2_start,W2_start]
-            result = scipy.optimize.leastsq(evaluate_shadow,startparams,args = (self.rv,self.ccf*self.ccf_mask,self.T,self.p,self.aRstar,self.vsys,self.inclination,self.n_components)) # alternatively you can do this with closure variables in f if you like
-            self.model = evaluate_shadow(result[0],self.rv,self.ccf*0.0,self.T,self.p,self.aRstar,self.vsys,self.inclination,self.n_components,leastsq=False)
+            result = scipy.optimize.leastsq(evaluate_shadow,startparams,args = (self.rv,self.ccf*self.ccf_mask,self.T,self.p,self.aRstar,self.vsys,self.inclination,self.n_components,self.offset)) # alternatively you can do this with closure variables in f if you like
+            self.model = evaluate_shadow(result[0],self.rv,self.ccf*0.0,self.T,self.p,self.aRstar,self.vsys,self.inclination,self.n_components,self.offset,leastsq=False)
             self.out_result = result[0]
             self.l_final = result[0][1]
             self.vsini_final = result[0][2]
@@ -368,7 +372,8 @@ class fit_doppler_model(object):
             "vsys": self.vsys,
             "inclination": self.inclination,
             "n_components": self.n_components,
-            "maskHW": self.maskHW}
+            "maskHW": self.maskHW,
+            "offset": self.offset}
         with open(self.outpath, 'wb') as f: pickle.dump(out_dict, f)
 
         # with open(self.outpath,"w") as file:
@@ -402,6 +407,7 @@ def construct_doppler_model(rv,ccf,dp,shadowname,xrange=[-200,200],Nxticks=20.0,
     y_axis = fun.findgen(nexp)
     #And for adding the planet line:
     vsys = sp.paramget('vsys',dp)
+    vsini = sp.paramget('vsini',dp)
     RVp = sp.RV(dp)+vsys
     transit = sp.transit(dp)
     sel_transit = y_axis[[transit < 1.0]]
@@ -517,8 +523,31 @@ def construct_doppler_model(rv,ccf,dp,shadowname,xrange=[-200,200],Nxticks=20.0,
 
 
 
+    #Then the offset slider:
+    rax_slider2 = plt.axes([0.8, 0.35, 0.15, 0.02])
+    rax_slider2.set_title('Offset 2nd component')
+    offset_slider = Slider(rax_slider2,'',-1.0*np.ceil(vsini),np.ceil(vsini),valinit=0.0,valstep=1.0)
+    def update_offset(val):
+        model_callback.offset = offset_slider.val
+        status = radio.value_selected
+        if status == clabels[1]:
+            model_callback.fit_model()
+            # data = z*model_callback.ccf_mask
+            # data[np.isnan(data)] = np.inf#The colobar doesn't eat NaNs...
+            # img1.set_array((data).ravel())
+            img2.set_array(model_callback.model.ravel())
+            img3.set_array((z-model_callback.model).ravel())
+        # if status == False:#If false (unclicked), then just the data w/o mask.
+        #     img1.set_array(z.ravel())
+        #     img2.set_array(model_callback.model.ravel())
+        #     img3.set_array((z-model_callback.model).ravel())
+        plt.draw()
+    offset_slider.on_changed(update_offset)
+
+
+
     #Then the slider:
-    rax_slider = plt.axes([0.8, 0.35, 0.15, 0.02])
+    rax_slider = plt.axes([0.8, 0.28, 0.15, 0.02])
     rax_slider.set_title('Mask width (km/s)')
     mask_slider = Slider(rax_slider,'', 0.0,30.0,valinit=s_init,valstep=1.0)
     def update(val):
