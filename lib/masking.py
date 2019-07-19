@@ -1,4 +1,22 @@
+#This package contains all the routines that allow the user to mask pixels and columns
+#out of the list of spectral orders. The main functionality is wrapped into mask_orders()
+#which is defined at the bottom. Mask_orders() is the highest-level thing that's called.
+#It does masking of all spectral orders in two steps (depending on which functionality was
+#requested by the user when calling it):
+#-An automatic sigma clipping.
+#-Manual selection of columns using a GUI.
+
+#The masked areas from these two operations are saved separately in the data folder.
+#and can be loaded/altered upon new calls/passes through run.py.
+#Most of the routines below are related to the GUI.
+
+
 def interpolate_over_NaNs(list_of_orders,cutoff=0.2):
+    #This is a helper function I had to dump here that is mostly unrelated to the GUI,
+    #but with healing NaNs. If there are too many NaNs in a column, instead of
+    #interpolating, just set the entire column to NaN. If an entire column is set to NaN,
+    #it doesn't need to be healed because the cross-correlation never sees it, and the pixel
+    #never contributes. It becomes like the column is beyond the edge of the wavelength range of the data.
     import numpy as np
     import lib.functions as fun
     import pdb
@@ -115,34 +133,47 @@ class mask_maker(object):
         ut.postest(Nyticks,varname='Nyticks in mask_maker init')
         ut.postest(nsigma,varname='Nsigma in mask_maker init')
 
-        self.N = min([56,self.N_orders-1])#We start on order 56, or the last order if order 56 doesn't exist.
         self.list_of_wls = list_of_wls
         self.list_of_orders = list_of_orders
-        #self.list_of_masks = list_of_masks
         self.list_of_selected_columns = list_of_saved_selected_columns
         #Normally, if there are no saved columns to load, list_of_saved_selected_columns is an empty list. However if
         #it is set, then its automatically loaded into self.list_of_selected_columns upon init.
         #Below there is a check to determine whether it was empty or not, and whether the list of columns
         #has the same length as the list of orders.
-        self.Nxticks = Nxticks
-        self.Nyticks = Nyticks
-        self.nsigma = nsigma
-        #Set the current active order to order zero, and calculate the meanspec
-        #and residuals to be plotted, which are saved in self.
+        if len(self.list_of_selected_columns) == 0:
+            for i in range(self.N_orders):
+                self.list_of_selected_columns.append([])#Make a list of empty lists.
+                    #This will contain all columns masked by the user, on top of the things
+                    #that are already masked by the program.
+        else:
+            if len(self.list_of_selected_columns) != self.N_orders:
+                print('ERROR in mask_maker init: Trying to restore previously saved')
+                print('columns but the number of orders in the saved column file does')
+                print('not match the number of orders provided.')
+                sys.exit()
+            print('------Restoring previously saved columns in mask-maker')
 
+
+        #All checks are now complete. Lets prepare to do the masking.
+        self.N = min([56,self.N_orders-1])#We start on order 56, or the last order if order 56 doesn't exist.
+        #Set the current active order to order , and calculate the meanspec
+        #and residuals to be plotted, which are saved in self.
         self.set_order(self.N)
+
 
         #Sorry for the big self.spaghetti of code. This initializes the plot.
         #Functions and vars further down in the class will deal with updating the plots
         #as buttons are pressed. Some of this is copied from the construct_doppler_model
         #function; but this time I made it part of the class.
         #First define plotting and axis parameters for the colormesh below.
+        self.Nxticks = Nxticks
+        self.Nyticks = Nyticks
+        self.nsigma = nsigma
         self.xrange = [0,self.npx-1]
         self.yrange=[0,self.nexp-1]
         self.x_axis=fun.findgen(self.npx).astype(int)
         self.y_axis = fun.findgen(self.nexp).astype(int)
         self.x2,self.y2,self.z,self.wl_sel,self.y_axis_sel,self.xticks,self.yticks,void1,void2= analysis.plotting_scales_2D(self.x_axis,self.y_axis,self.residual,self.xrange,self.yrange,Nxticks=self.Nxticks,Nyticks=self.Nyticks,nsigma=self.nsigma)
-
         self.fig,self.ax = plt.subplots(3,1,sharex=True,figsize=(14,6))#Initialize the figure and 3 axes.
         plt.subplots_adjust(left=0.05)#Make them more tight, we need all the space we can get.
         plt.subplots_adjust(right=0.85)
@@ -169,23 +200,6 @@ class mask_maker(object):
 
         #The rest is for dealing with the masking itself; the behaviour of the
         #add/subtact buttons, the cursor and the saving of the masked columns.
-        if len(self.list_of_selected_columns) == 0:
-            for i in range(self.N_orders):
-                self.list_of_selected_columns.append([])#Make a list of empty lists.
-                    #This will contain all columns masked by the user, on top of the things
-                    #that are already masked by the program. I may want to remove the
-                    #usage of list_of_masks completely to save memory. If the dataset is
-                    #large, this can be a drain.
-        else:
-            if len(self.list_of_selected_columns) != self.N_orders:
-                print('ERROR in mask_maker init: Trying to restore previously saved')
-                print('Columns but the number of orders in the saved column file does')
-                print('not match the number of orders provided.')
-                sys.exit()
-            print('------Restoring previously saved columns in mask-maker')
-            #And now we pass, because self.list_of_saved_selected_columns has already been
-            #loaded (up at the start of init.)
-
         self.col_active = ['coral','mistyrose']#The colours for the ADD and SUBTRACT buttons that
         #can be activated.
         self.col_passive = ['lightgrey','whitesmoke']#Colours when they are not active.
@@ -193,12 +207,14 @@ class mask_maker(object):
         self.addstatus = 0#The status for adding-to-mask mode starts as zero; i.e. it starts inactive.
         self.substatus = 0#Same for subtraction.
         self.list_of_polygons = []#This stores the polygons that are currently plotted. When initializing, none are plotted.
+        #However when proceeding through draw_masked_areas below, this variable could become populated if previously selected
+        #column were loaded from file.
         self.multi = MultiCursor(self.fig.canvas, (self.ax[0],self.ax[1],self.ax[2]), color='g', lw=1, horizOn=False, vertOn=True)
         self.multi.set_active(False)#The selection cursor starts deactivated as well, and is activated and deactivated
         #further down as the buttons are pressed.
 
-        #To show the z value of the plotted arrays, taken from
-        #https://matplotlib.org/examples/api/image_zcoord.html
+        #The following show the z value of the plotted arrays in the statusbar,
+        #taken from https://matplotlib.org/examples/api/image_zcoord.html
         numrows, numcols = self.order.shape
         def format_coord_order(x, y):
             col = int(x + 0.5)
@@ -219,9 +235,7 @@ class mask_maker(object):
         self.ax[0].format_coord = format_coord_order
         self.ax[1].format_coord = format_coord_res
         self.draw_masked_areas()
-
-
-
+        #This is the end of init.
 
 
     def draw_masked_areas(self):
@@ -230,15 +244,15 @@ class mask_maker(object):
         import matplotlib.pyplot as plt
 
         def plot_span(min,max):#This is a shorthand for drawing the polygons in the same style on all subplots.
-            for subax in self.ax:
+            for subax in self.ax:#There are 3 ax objects in this list.
                 self.list_of_polygons.append(subax.axvspan(min,max,color='green',alpha=0.5))
 
-
         #Start by removing any polygons that were saved by earlier calls to this
-        #function. Everything needs to be drawn each time.
-        if len(self.list_of_polygons) > 0:
+        #function after switching orders. Everything needs to be redrawn each time
+        #a new order is selected, i.e. each time this function is called.
+        if len(self.list_of_polygons) > 0:#If blocks are already plotted...
             for i in self.list_of_polygons:
-                i.remove()
+                i.remove()#emtpy the list.
             self.list_of_polygons = []
 
         #Select the columns defined by the select-columns events in the add and subtract subroutines.
@@ -248,7 +262,8 @@ class mask_maker(object):
             min = columns[0]#start by opening a block
             for i in range(1,len(columns)-1):
                 dx = columns[i] - columns[i-1]
-                if dx > 1:
+                if dx > 1:#As long as dx=1, we are passing through adjacently selected columns.
+                #Only do something if dx>1, in which case we need to end the block and start a new one.
                     max=columns[i-1]#then the previous column was the last element of the block
                     plot_span(min,max)
                     min=columns[i]#Begin a new block
@@ -260,6 +275,7 @@ class mask_maker(object):
 
 
     def set_order(self,i):
+        #This modifies the currently active order to be plotted.
         import numpy as np
         import lib.functions as fun
         import warnings
@@ -272,25 +288,26 @@ class mask_maker(object):
         self.wl = self.list_of_wls[i]
         self.order = self.list_of_orders[i]
 
-        #Can put a status in here: If show-previousmask = true (a checkbox in the GUI)
-        #then multiply order by it such that the NaNs that already exist in the mask disappear.
-        #self.mask = self.list_of_masks[i]
+        #Measure the shape of the current order
         self.nexp = np.shape(self.order)[0]
         self.npx = np.shape(self.order)[1]
+
+        #Compute the meanspec and the residuals, ignoring runtime warnings related to NaNs:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             self.meanspec = np.nanmean(self.list_of_orders[i],axis=0)
-            self.residual = self.order / self.meanspec# = fun.rebinreform(self.meanspec,self.nexp)
-        self.img_max = np.nanmean(self.meanspec[fun.selmax(self.meanspec,0.02,s=0.02)])*1.3#....and doesn't contribute to the mean of selmax.
+            self.residual = self.order / self.meanspec
+        self.img_max = np.nanmean(self.meanspec[fun.selmax(self.meanspec,0.02,s=0.02)])*1.3
         self.vmin = np.nanmedian(self.residual)-3.0*np.nanstd(self.residual)
         self.vmax = np.nanmedian(self.residual)+3.0*np.nanstd(self.residual)
 
 
     def exit_add_mode(self):
-        #This is a separate function because it can be called on 3 occasions:
+        #This exits column-addition mode of the interface.
+        #This is a separate function that can be called on 3 occasions:
         #When pressing the Mask button for the second time, when pressing the
         #subtract button while in Mask mode, and when exiting the GUI.
-        self.multi.set_active(False)
+        self.multi.set_active(False)#This is the green vertical line. Its not shown when this mode is off.
         self.fig.canvas.mpl_disconnect(self.click_connector)
         self.addstatus = 0
         self.badd.color=self.col_passive[0]
@@ -299,10 +316,11 @@ class mask_maker(object):
         print('---------Exited add mode')
 
     def exit_sub_mode(self):
-        #This is a separate function because it can be called on 3 occasions:
+        #This exits column-subtraction mode of the interface.
+        #This is a separate function that can be called on 3 occasions:
         #When pressing the Mask button for the second time, when pressing the
         #subtract button while in Mask mode, and when exiting the GUI.
-        self.multi.set_active(False)
+        self.multi.set_active(False)#This is the green vertical line. Its not shown when this mode is off.
         self.fig.canvas.mpl_disconnect(self.click_connector)
         self.substatus = 0
         self.bsub.color=self.col_passive[0]
@@ -322,15 +340,16 @@ class mask_maker(object):
         #this behaviour.
 
         def add_columns(event):
+            #This handles with a mouseclick in either of the three plots while in add mode.
             if event.inaxes in [self.ax[0],self.ax[1],self.ax[2]]:#Check that it occurs in one of the subplots.
-                ci = event.xdata*1.0
-                selmin = max([int(ci-0.5*self.MW),0])
+                ci = event.xdata*1.0#xdata is the column that is selected.
+                selmin = max([int(ci-0.5*self.MW),0])#Select all columns in a range of self.HW from that click.
                 selmax = min([int(ci+0.5*self.MW),self.npx-1])
                 sel = self.x_axis[selmin:selmax]
-                for i in sel:
+                for i in sel:#Add the selected range to the list of this order.
                     self.list_of_selected_columns[self.N].append(i)
                 self.list_of_selected_columns[self.N]=list(set(self.list_of_selected_columns[self.N]))#Remove duplicates
-                self.draw_masked_areas()
+                self.draw_masked_areas()#Update the green areas.
                 self.fig.canvas.draw_idle()
 
         if self.addstatus == 0:
@@ -341,8 +360,9 @@ class mask_maker(object):
             self.badd.color=self.col_active[0]
             self.badd.hovercolor=self.col_active[1]
             self.fig.canvas.draw()
-            self.multi.set_active(True)
-            self.click_connector = self.fig.canvas.mpl_connect('button_press_event', add_columns)
+            self.multi.set_active(True)#This is the green vertical line. Its shown only when this mode is on.
+            self.click_connector = self.fig.canvas.mpl_connect('button_press_event', add_columns)#This is the connector that registers clicks
+            #on the plot. Not clicks on the buttons!
         else:
             self.exit_add_mode()
 
@@ -386,14 +406,16 @@ class mask_maker(object):
 
 
     def previous(self,event):
+        #The button to go to the previous order.
         self.N -= 1
-        if self.N <0:
+        if self.N <0:#If order tries to become less than zero, loop to the highest order.
             self.N = len(self.list_of_orders)-1
         self.set_order(self.N)
-        self.mask_slider.set_val(self.N)
-        self.update_plots()
+        self.mask_slider.set_val(self.N)#Update the slider value.
+        self.update_plots()#Redraw everything.
 
     def next(self,event):
+        #The button to go to the next order. Similar to previous().
         self.N += 1
         if self.N > len(self.list_of_orders)-1:
             self.N = 0
@@ -402,15 +424,19 @@ class mask_maker(object):
         self.update_plots()
 
     def cancel(self,event):
+        #This is a way to crash hard out of the python interpreter.
         import sys
         print('------Canceled by user')
         sys.exit()
 
     def save(self,event):
+        #The "save" button is actually only closing the plot. Actual saving of things
+        #happens below plt.show() below.
         import matplotlib.pyplot as plt
         plt.close(self.fig)
 
     def update_plots(self):
+        #This redraws the plot planels, taking care to reselect axis ranges and such.
         import matplotlib.pyplot as plt
         import pdb
         import numpy as np
@@ -433,11 +459,13 @@ class mask_maker(object):
         self.fig.canvas.draw_idle()
 
     def slide_order(self,event):
+        #This handles the order-selection slide bar.
         self.N = int(self.mask_slider.val)
         self.set_order(self.N)
         self.update_plots()
 
     def slide_maskwidth(self,event):
+        #This handles the mask-width selection slide bar.
         self.MW = int(self.MW_slider.val)
 
 
@@ -457,7 +485,7 @@ def manual_masking(list_of_wls,list_of_orders,list_of_masks,Nxticks = 20,Nyticks
     import sys
     import lib.cleaning as cleaning
     from matplotlib.widgets import Slider, Button, RadioButtons, CheckButtons
-    """This routine enters the user into a GUI in which he/she can both visualize
+    """This routine brings the user into a GUI in which he/she can both visualize
     the spectral orders, and mask regions of bad data; such as occur at edges
     of orders, inside deep spectral lines (stellar or telluric) or other places.
 
@@ -477,7 +505,7 @@ def manual_masking(list_of_wls,list_of_orders,list_of_masks,Nxticks = 20,Nyticks
 
     M = mask_maker(list_of_wls,list_of_orders,saved,Nxticks=Nxticks,Nyticks=Nyticks,nsigma=3.0) #Mask callback
     #This initializes all the parameters of the plot. Which order it is plotting, what
-    #dimensions these have, the actual data arrays to plot; etc. Initialises on order zero.
+    #dimensions these have, the actual data arrays to plot; etc. Initialises on order 56.
     #I also dumped most of the buttons and callbacks into there; so this thing
     #is probably a bit of a sphaghetti to read.
 
@@ -533,9 +561,15 @@ def manual_masking(list_of_wls,list_of_orders,list_of_masks,Nxticks = 20,Nyticks
 
 
     plt.show()
+    #When pressing "save", the figure is closed, the suspesion caused by plt.show() is
+    #lifted and we continue to exit this GUI function, as its job has been done:
+    #return all the columns that were selected by the user.
     return(M.list_of_selected_columns)
 
 
+
+#The following functions deal with saving and loading the clipped and selected pixels
+#and columns to/from file.
 def load_columns_from_file(dp,maskname,mode='strict'):
     """This loads the list of lists of columns back into memory after having been
     saved by a call of write_columns_to_file() below."""
@@ -554,7 +588,7 @@ def load_columns_from_file(dp,maskname,mode='strict'):
              print('---No previously saved manual mask exists. User will start a new mask.')
              return([])
     else:
-        print('---Loading previously saved manual mask %s' % outpath+'_columns.pkl')
+        print('------Loading previously saved manual mask %s' % outpath+'_columns.pkl')
         pickle_in = open(outpath+'_columns.pkl',"rb")
         return(pickle.load(pickle_in))
 
@@ -569,7 +603,7 @@ def write_columns_to_file(dp,maskname,list_of_selected_columns):
         outpath = dp+'/'+maskname
     print('---Saving list of masked columns to %s' % outpath+'_columns.pkl')
     with open(outpath+'_columns.pkl', 'wb') as f: pickle.dump(list_of_selected_columns, f)
-#CONTINUE HERE!!
+
 
 def write_mask_to_file(dp,maskname,list_of_masks_auto,list_of_masks_manual=[]):
     import lib.utils as ut
@@ -608,9 +642,8 @@ def apply_mask_from_file(dp,maskname,list_of_orders):
     #At this point either of the mask files is determined to exist.
     #Apply the masks to the orders, by adding. This works because the mask is zero
     #everywhere, apart from the NaNs, and x+0=x, while x+NaN = NaN.
-
     if os.path.isfile(inpath_auto) ==  True:
-        print('---Applying sigma_clipped mask from %s' % inpath_auto)
+        print('------Applying sigma_clipped mask from %s' % inpath_auto)
         cube_of_masks_auto = fits.getdata(inpath_auto)
         Nm = len(cube_of_masks_auto)
         if Nm != N:
@@ -626,7 +659,7 @@ def apply_mask_from_file(dp,maskname,list_of_orders):
 
 
     if os.path.isfile(inpath_man) ==  True:
-        print('---Applying manually defined mask from %s' % inpath_man)
+        print('------Applying manually defined mask from %s' % inpath_man)
         cube_of_masks_man = fits.getdata(inpath_man)
         Nm = len(cube_of_masks_man)
         if Nm != N:
@@ -714,11 +747,8 @@ def mask_orders(list_of_wls,list_of_orders,dp,maskname,w,c_thresh,manual=False):
         print('------Skipping sigma-clipping (c_thres <= 0)')
         #Do nothing to list_of_masks. It is now an empty list.
         #We now automatically proceed to manual masking, because at this point
-        #it has already been established that it is turned on.
+        #it has already been established that it must have been turned on.
 
-
-        #for i in range(N):
-            #list_of_masks.append(list_of_orders[i]*0.0)
 
     list_of_masks_manual = []
     if manual == True:
@@ -729,8 +759,6 @@ def mask_orders(list_of_wls,list_of_orders,dp,maskname,w,c_thresh,manual=False):
         print('------Successfully concluded manual mask.')
         write_columns_to_file(dp,maskname,list_of_masked_columns)
 
-
-
         print('------Building manual mask from selected columns')
         for i in range(N):
             order = list_of_orders[i]
@@ -739,24 +767,10 @@ def mask_orders(list_of_wls,list_of_orders,dp,maskname,w,c_thresh,manual=False):
             list_of_masks_manual.append(np.zeros((N_exp,N_px)))
             for j in list_of_masked_columns[i]:
                 list_of_masks_manual[i][:,j] = np.nan
-                #list_of_masks[i][:,j] = np.nan
-
-        #if c_thresh > 0:
-        #    write_mask_to_file(dp,maskname,list_of_masks,list_of_masks_manual)
-        #else:
-        #write_mask_to_file(dp,maskname,list_of_masks,list_of_masks_manual)
-
-    #else:
-        #If we reach this branch, it means that c_thresh > 0 and manual was set to
-        #false. In this case we write a filled list_of_masks (auto) but an empty
-        #list for list_of_masks_manual.
 
     #We write 1 or 2 mask files here. The list of manual masks
     #and list_of_masks (auto) are either filled, or either is an emtpy list if
     #c_thresh was set to zero or manual was set to False (because they were defined
     #as empty lists initially, and then not filled with anything).
     write_mask_to_file(dp,maskname,list_of_masks,list_of_masks_manual)
-
-    #The following acts to confirm that the saving was done correctly, and at the
-    #same time merges the auto and manual masks into a single list of masks.
     return(0)
