@@ -80,7 +80,8 @@ def xcor(list_of_wls,list_of_orders,wlm,fxm,drv,RVrange,NaN=None,verticalmask=No
             order=list_of_orders[j]
 
             T_i=scipy.interpolate.interp1d(wlms[(wlms >= np.min(wl)-10.0) & (wlms <= np.max(wl)+10.0)],fxm[(wlms >= np.min(wl)-10.0) & (wlms <= np.max(wl)+10.0)])
-            T_matrix=fun.rebinreform(T_i(wl),n_exp)
+            T = T_i(wl)
+            T_matrix=fun.rebinreform(T,n_exp)
             CCF[:,i]+=np.nansum(T_matrix*order,1)
             if list_of_errors != None:
                 sigma=list_of_errors[j]
