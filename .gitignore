@@ -7,3 +7,14 @@ lib/*.pyc
 lib/.DS_Store
 *.pdf
 lib/*/*.pyc
+*.png
+*.trans
+*.txt
+output/*.txt
+output/*.res
+output/*.asc
+output/*.par
+output/*.atm
+*.pkl
+lib/__pycache__/*
+*.dat
