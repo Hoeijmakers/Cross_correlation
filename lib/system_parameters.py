@@ -182,10 +182,13 @@ def dRV(dp):
     import numpy as np
     import lib.constants as const
     from astropy.io import ascii
+    import pdb
     typetest('dp',dp,str)
 
-    d=ascii.read(dp+'obs_times',names=['mjd','time','exptime','airmass'])
-    Texp=d['exptime'].astype('float')
+    #d=ascii.read(dp+'obs_times',names=['mjd','time','exptime','airmass'])
+    d=ascii.read(dp+'obs_times',comment="#")
+    #Texp=d['exptime'].astype('float')
+    Texp=d['col3'].data#astype('float')
     vorb=v_orb(dp)
     p=phase(dp)
     P=paramget('P',dp)
