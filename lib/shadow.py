@@ -326,7 +326,6 @@ class fit_doppler_model(object):
             import scipy.optimize
             import numpy as np
             import lib.functions as fun
-            print(self.offset)
             A_start = np.max(np.abs(self.ccf))
             C_start = np.nanmedian(self.ccf)
             W_start = 5.0#km/s.
