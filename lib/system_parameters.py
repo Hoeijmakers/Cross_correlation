@@ -55,7 +55,6 @@ def v_orb(dp):
     return 2.0*np.pi*r/P/1000.0
 
 def berv(dp):
-
     """This program retrieves the BERV corrcetion tabulated in the obs_times file.
     Example: brv=berv('data/Kelt-9/night1/')
     The output is an array with length N, corresponding to N exposures. These values
@@ -74,6 +73,50 @@ def berv(dp):
     #The second column has to be a date array though.
     berv = d['col5']
     return berv.data
+
+
+def astropyberv(dp):
+    """
+    This does the same as berv(dp), but uses astropy to compute these. Useful if the BERV keyword was somehow wrong or missing.
+
+    >>> from astropy.time import Time
+>>> from astropy.coordinates import SkyCoord, EarthLocation
+>>> # keck = EarthLocation.of_site('Keck')  # the easiest way... but requires internet
+>>> keck = EarthLocation.from_geodetic(lat=19.8283*u.deg, lon=-155.4783*u.deg, height=4160*u.m)
+>>> sc = SkyCoord(ra=4.88375*u.deg, dec=35.0436389*u.deg)
+>>> barycorr = sc.radial_velocity_correction(obstime=Time('2016-6-4'), location=keck)
+>>> barycorr.to(u.km/u.s)
+<Quantity 20.077135 km / s>
+>>> heliocorr = sc.radial_velocity_correction('heliocentric', obstime=Time('2016-6-4'), location=keck)
+>>> heliocorr.to(u.km/u.s)
+<Quantity 20.070039 km / s>
+
+    """
+    from lib.utils import typetest
+    import numpy as np
+    from astropy.io import ascii
+    from astropy.time import Time
+    from astropy import units as u
+    from astropy.coordinates import SkyCoord, EarthLocation
+    import sys
+    typetest('dp',dp,str)
+    d=ascii.read(dp+'obs_times',comment="#")#,names=['mjd','time','exptime','airmass'])
+    #Removed the named columns because I may not know for sure how many columns
+    #there are, and read-ascii breaks if only some columns are named.
+    #The second column has to be a date array though.
+    dates = d['col1']
+    berv = []
+    observatory = EarthLocation.from_geodetic(lat=paramget('lat',dp)*u.deg, lon=paramget('long',dp)*u.deg, height=paramget('elev',dp)*u.m)
+    sc = SkyCoord(ra=4.88375*u.deg, dec=35.0436389*u.deg)
+    RA=paramget('RA',dp)
+    DEC=paramget('DEC',dp)
+    sc = SkyCoord(RA+' '+DEC, unit=(u.hourangle, u.deg))
+    for date in dates:
+        barycorr = sc.radial_velocity_correction(obstime=Time(date,format='mjd'), location=observatory)
+        berv.append((barycorr/(1000*u.m/u.s)).value)
+    return berv
+
+
 
 def phase(dp):
 
