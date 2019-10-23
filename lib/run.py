@@ -2,7 +2,7 @@
 
 
 
-def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500.0,drv=1.0,do_colour_correction=True,do_xcor=True,plot_xcor=False,do_berv_correction=True,do_keplerian_correction = True,make_doppler_model=True,model_library='models/library',template_library='models/library',skip_doppler_model = False,make_mask=False,apply_mask=True):
+def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500.0,drv=1.0,do_colour_correction=True,do_xcor=True,plot_xcor=False,do_berv_correction=True,do_keplerian_correction = True,make_doppler_model=True,inject_model = False,model_library='models/library',template_library='models/library',skip_doppler_model = False,make_mask=False,apply_mask=True,do_telluric_correction=False):
     """This is the main script that runs through the entire sequence of steps."""
     import numpy as np
     from lib import utils as ut
@@ -17,9 +17,10 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
     from lib import system_parameters as sp
     from lib import masking as masking
     from lib import shadow as shadow
+    from lib import molecfit as telcor
     from astropy.io import fits
     from matplotlib import pyplot as plt
-    from scipy import interpolate
+    import scipy.interpolate as interp
     import pylab
     import pdb
     import os.path
@@ -27,6 +28,8 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
     import sys
     import glob
     import distutils.util
+    import pickle
+    import copy
 
 
 #Need to build in a lot of tests here on the input.
@@ -51,10 +54,12 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
     endorder = int(sp.paramget('endorder',dp))
     air = bool(distutils.util.strtobool(sp.paramget('air',dp)))#Read bool from str in config file.
 
-    #Loading the data from the datafolder.
+
+
+#Loading the data from the datafolder.
     if do_xcor == True or plot_xcor == True or make_mask == True:
         print('---Reading orders from '+dp)
-        t1=ut.start()
+
         for i in range(startorder,endorder+1):
             if air == False:
                 if i == startorder:
@@ -74,42 +79,99 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
                 list_of_sigmas.append(fits.getdata(dp+'sigma_%s.fits' % i))
             except FileNotFoundError:
                 if trigger2 == 0:
-                    print('------WARNING: SIGMA FILE NOT PROVIDED. ASSUMING SIGMA = SQRT(FLUX). This is ok for HARPS data.')
+                    print('------WARNING: Sigma (flux error) files not provided. Assuming sigma = sqrt(flux). This is standard practise for HARPS data.')
                     trigger2=-1
                 list_of_sigmas.append(np.sqrt(order_i))
-        t2=ut.end(t1)
 
 
-    #Do masking or not.
-    if make_mask == True:
+
+#Apply telluric correction file or not.
+
+    # plt.plot(list_of_wls[0],list_of_orders[56][0])
+    # for i in range(57,69):
+    #     plt.plot(list_of_wls[i],list_of_orders[i][0])
+    # plt.show()
+    if do_telluric_correction == True and len(list_of_orders) > 0:
+        print('---Applying telluric correction')
+        telpath = dp+'telluric_transmission_spectra.pkl'
+        list_of_orders = telcor.apply_telluric_correction(telpath,list_of_wls,list_of_orders)
+    # plt.plot(list_of_wls[0],list_of_orders[56][0])
+    # plt.show()
+    # pdb.set_trace()
+
+#Do velocity correction of wl-solution. Explicitly after telluric correction
+#but before masking! Because the cross-correlation relies on columns being masked.
+#Then if you start to move the CCFs around before removing the time-average,
+#each masked column becomes slanted. Bad deal.
+
+    rv_cor = 0
+    if do_berv_correction == True:
+        rv_cor += sp.berv(dp)
+    if do_keplerian_correction == True:
+        rv_cor-=sp.RV_star(dp)*(1.0)
+
+    if type(rv_cor) != int and len(list_of_orders) > 0:
+        print('---Reinterpolating data to correct velocities')
+        list_of_orders_cor = []
+        list_of_sigmas_cor = []
+        for i in range(len(list_of_wls)):
+            order = list_of_orders[i]
+            sigma = list_of_sigmas[i]
+            order_cor = order*0.0
+            sigma_cor = sigma*0.0
+            for j in range(len(list_of_orders[0])):
+                wl_i = interp.interp1d(list_of_wls[i],order[j],bounds_error=False)
+                si_i = interp.interp1d(list_of_wls[i],sigma[j],bounds_error=False)
+                wl_cor = list_of_wls[i]*(1.0-rv_cor[j]*1000.0/const.c)#The minus sign was tested on a slow-rotator.
+                order_cor[j] = wl_i(wl_cor)
+                sigma_cor[j] = si_i(wl_cor)
+            list_of_orders_cor.append(order_cor)
+            list_of_sigmas_cor.append(sigma_cor)
+            ut.statusbar(i,fun.findgen(len(list_of_wls)))
+        list_of_orders = list_of_orders_cor
+        list_of_sigmas = list_of_sigmas_cor
+
+
+
+
+#Do masking or not.
+    if make_mask == True and len(list_of_orders) > 0:
         print('---Constructing mask ')
-        masking.mask_orders(list_of_wls,list_of_orders,dp,maskname,40.0,0.0,manual=True)
+        masking.mask_orders(list_of_wls,list_of_orders,dp,maskname,40.0,5.0,manual=True)
         if apply_mask == False:
             print('---Warning in run_instanace: Mask was made but is not applied to data (apply_mask = False)')
-    if apply_mask == True:
+    if apply_mask == True and len(list_of_orders) > 0:
         print('---Applying mask')
         list_of_orders = masking.apply_mask_from_file(dp,maskname,list_of_orders)
+    print('---Healing NaNs')
+    list_of_orders = masking.interpolate_over_NaNs(list_of_orders)
 
 
-#The following tests inject_model
-# print('Injecting model')
-# t1=ut.start()
-# order_injected=models.inject_model(wl1,order1,dp,modelname)
-# t2=ut.end(t1)
+
+#Inject_model, or not.
+    if inject_model == True and do_xcor == True:
+        print('---Injecting model')
+        list_of_orders_injected=models.inject_model(list_of_wls,list_of_orders,dp,modelname,model_library=model_library)
 
 
-#Need to normalize the orders to their average flux in order to effectively apply
-#a broad-band colour correction (colour is a function of airmass and seeing)
+#Normalize the orders to their average flux in order to effectively apply
+#a broad-band colour correction (colour is a function of airmass and seeing).
     if do_xcor == True and do_colour_correction == True:
         print('---Normalizing orders to common flux level')
         list_of_orders = ops.normalize_orders(list_of_orders)
-    #The following performs continuum normalization for template construction.
+        if inject_model == True:
+            list_of_orders_injected = ops.normalize_orders(list_of_orders_injected)
+
+
+#Construct the cross-correlation template in case we will be doing or plotting xcor.
     if do_xcor == True or plot_xcor == True:
         print('---Building template')
-        t1=ut.start()
         wlt,T=models.build_template(templatename,binsize=0.5,maxfrac=0.01,resolution=120000.0,template_library=template_library)
-        t2=ut.end(t1)
         T*=(-1.0)
+
+
+
+
 
 
 #CAN'T I OUTSOURCE THIS TO DANIEL AND SIMON? I mean for each spectrum they could also
@@ -151,18 +213,26 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
 # plt.plot(wlt,T)
 # plt.show()
 
-#Perform the cross-correlation on the entire list of orders.
 
+
+#Perform the cross-correlation on the entire list of orders.
     if do_xcor == True:
-        print('---Starting cross-correlation')
-        t1=ut.start()
+        print('---Cross-correlating spectra')
         rv,ccf,ccf_e,Tsums=analysis.xcor(list_of_wls,list_of_orders,np.flipud(np.flipud(wlt)),T,drv,RVrange,list_of_errors=list_of_sigmas)
-        t2=ut.end(t1)
-        print('---Writing output to '+outpath)
+        print('------Writing output to '+outpath)
         ut.writefits(outpath+'ccf.fits',ccf)
         ut.writefits(outpath+'ccf_e.fits',ccf_e)
         ut.writefits(outpath+'RV.fits',rv)
         ut.writefits(outpath+'Tsum.fits',Tsums)
+
+
+        if inject_model == True:
+            print('---Cross-correlating model injection')
+            rv_i,ccf_i,ccf_e_i,Tsums_i=analysis.xcor(list_of_wls,list_of_orders_injected,np.flipud(np.flipud(wlt)),T,drv,RVrange,list_of_errors=list_of_sigmas)
+            print('------Writing output to '+outpath)
+            ut.writefits(outpath+'ccf_i.fits',ccf_i)
+            ut.writefits(outpath+'ccf_e_i.fits',ccf_e_i)
+
     else:
         print('---Reading CCFs from '+outpath)
         try:
@@ -175,23 +245,31 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
         ccf_e = fits.getdata(outpath+'ccf_e.fits')
         Tsums = fits.getdata(outpath+'Tsum.fits')
 
-
+        if inject_model == True:
+            print('---Reading injected CCFs from '+outpath)
+            try:
+                f = open(outpath+'ccf_i.fits', 'r')
+            except FileNotFoundError:
+                print('------ERROR: Necessary CCF output not located at '+outpath+'. Set do_xcor and inject_model to True.')
+                sys.exit()
+            ccf_i = fits.getdata(outpath+'ccf_i.fits')
+            ccf_e_i = fits.getdata(outpath+'ccf_e_i.fits')
 
 
 #Velocity corrections
-    rv_cor = 0
-    if do_berv_correction == True:
-        rv_cor += sp.berv(dp)
-    if do_keplerian_correction == True:
-        rv_cor-=sp.RV_star(dp)
+    # rv_cor = 0
+    # if do_berv_correction == True:
+    #     rv_cor += sp.berv(dp)
+    # if do_keplerian_correction == True:
+    #     rv_cor-=sp.RV_star(dp)
 
-    if type(rv_cor) != int:
-        print('---Performing velocity corrections')
-        ccf_cor = ops.shift_ccf(rv,ccf,rv_cor)
-        ccf_e_cor = ops.shift_ccf(rv,ccf_e,rv_cor)
-    else:
-        ccf_cor = ccf*1.0
-        ccf_e_cor = ccf_e*1.0
+    # if type(rv_cor) != int:
+    #     print('---Performing velocity corrections')
+    #     ccf_cor = ops.shift_ccf(rv,ccf,rv_cor)
+    #     ccf_e_cor = ops.shift_ccf(rv,ccf_e,rv_cor)
+    # else:
+    ccf_cor = ccf*1.0
+    ccf_e_cor = ccf_e*1.0
 
 
     if plot_xcor == True:
@@ -199,18 +277,17 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
         fitdv = sp.paramget('fitdv',dp)
         analysis.plot_XCOR(list_of_wls,list_of_orders,wlt,T,rv,ccf_cor,Tsums,dp,CCF_E=ccf_e_cor,dv=fitdv)
 
-    print('---Cleaning CCFs')
-    ccf_n,ccf_ne,ccf_nn = cleaning.clean_ccf(rv,ccf_cor,ccf_e_cor,dp)
-    ut.save_stack('test2.fits',[ccf,ccf_cor,ccf_n,ccf_nn])
     sys.exit()
+    print('---Cleaning CCFs')
+    ccf_n,ccf_ne,ccf_nn,ccf_nne = cleaning.clean_ccf(rv,ccf_cor,ccf_e_cor,dp)
     ut.writefits(outpath+'ccf_normalized.fits',ccf_nn)
     ut.writefits(outpath+'ccf_ne.fits',ccf_ne)
 
-    # print('Building and removing Doppler Model')
-    # print('THIS IS STILL HARDCODED TO WASP-121!')
-    # doppler_rv,ccf_ds_model = shadow.construct_doppler_model_vincent(dp+'../shadow_model_vincent.dat.txt',dp,rv,ccf_nn)
-    # ccf_clean = ccf_nn - ccf_ds_model
-
+    if inject_model == True:
+        print('---Cleaning injected CCFs')
+        ccf_n_i,ccf_ne_i,ccf_nn_i,ccf_nne_i = cleaning.clean_ccf(rv,ccf_i,ccf_e_i,dp)
+        ut.writefits(outpath+'ccf_normalized_i.fits',ccf_nn_i)
+        ut.writefits(outpath+'ccf_ne_i.fits',ccf_ne_i)
 
     if make_doppler_model == True and skip_doppler_model == False:
         shadow.construct_doppler_model(rv,ccf_nn,dp,shadowname,xrange=[-200,200],Nxticks=20.0,Nyticks=10.0)
@@ -219,12 +296,23 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
         print('---Reading doppler shadow model from '+shadowname)
         doppler_model,maskHW = shadow.read_shadow(dp,shadowname,rv,ccf)
         ccf_clean,matched_ds_model = shadow.match_shadow(rv,ccf_nn,dp,doppler_model,maskHW)
+
+        if inject_model == True:
+                ccf_clean_i,matched_ds_model_i = shadow.match_shadow(rv,ccf_nn_i,dp,doppler_model,maskHW)
     else:
         print('---Not performing shadow correction')
         ccf_clean = ccf_nn*1.0
         matched_ds_model = ccf_clean*0.0
+        if inject_model == True:
+            ccf_clean_i = ccf_nn_i*1.0
+            matched_ds_model_i = ccf_clean_i*0.0
+
+
     ut.save_stack(outpath+'cleaning_steps.fits',[ccf,ccf_cor,ccf_nn,ccf_clean,matched_ds_model])
     ut.writefits(outpath+'ccf_cleaned.fits',ccf_clean)
+
+    if inject_model == True:
+        ut.writefits(outpath+'ccf_cleaned_i.fits',ccf_clean_i)
 
     if plot_xcor == True:
         print('---Plotting 2D CCF')
@@ -233,18 +321,26 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
         # analysis.plot_ccf(rv,ccf_ds_model,dp,xrange=[-200,200],Nticks=20.0,doppler_model = doppler_rv)
         # analysis.plot_ccf(rv,ccf_clean,dp,xrange=[-200,200],Nticks=20.0,doppler_model = doppler_rv)
 
+    # ut.save_stack('test.fits',[ccf_n,ccf_nn,ccf_ne,ccf_nne])
+    # pdb.set_trace()
 
     print('---Constructing KpVsys')
-    t1=ut.start()
-    Kp,KpVsys = analysis.construct_KpVsys(rv,ccf_clean,dp)
-    ut.end(t1)
+    Kp,KpVsys,KpVsys_e = analysis.construct_KpVsys(rv,ccf_clean,ccf_nne,dp)
     ut.writefits(outpath+'KpVsys.fits',KpVsys)
+    ut.writefits(outpath+'KpVsys_e.fits',KpVsys_e)
     ut.writefits(outpath+'Kp.fits',Kp)
+    if inject_model == True:
+        Kp,KpVsys_i,KpVsys_e_i = analysis.construct_KpVsys(rv,ccf_clean_i,ccf_nne_i,dp)
+        ut.writefits(outpath+'KpVsys_i.fits',KpVsys_i)
+        # ut.writefits(outpath+'KpVsys_e_i.fits',KpVsys_e_i)
 
 
     if plot_xcor == True:
         print('---Plotting KpVsys')
-        analysis.plot_KpVsys(rv,Kp,KpVsys,dp)
+        if inject_model == False:
+            analysis.plot_KpVsys(rv,Kp,KpVsys,dp)
+        else:
+            analysis.plot_KpVsys(rv,Kp,KpVsys,dp,injected=KpVsys_i)
 
 
 
@@ -292,11 +388,6 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
 #pylab.plot(wl,spec_b2)
 #pylab.show()
 
-
-#The following tests get_model.
-#wlm,fxm=models.get_model('W121-plez')
-#plot(wlm,fxm)
-#show()
 
 
 

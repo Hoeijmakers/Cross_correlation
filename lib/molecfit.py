@@ -1,4 +1,4 @@
-def do_molecfit(headers,spectra,load_previous=False):
+def do_molecfit(headers,spectra,mode='HARPS',load_previous=False):
     """This is a function that pipes a list of s1d spectra into molecfit, and
     executes it. It first launces the molecfit gui on the middle spectrum of the
     sequence, and then loops through the entire list, returning the transmission
@@ -21,9 +21,10 @@ def do_molecfit(headers,spectra,load_previous=False):
     import os.path
     import lib.utils as ut
     import pickle
+    import copy
     molecfit_input_folder='/Users/hoeijmakers/Molecfit/share/molecfit/spectra/cross_cor/'
     molecfit_prog_folder='/Users/hoeijmakers/Molecfit/bin/'
-    temp_specname = 'test'#The name of the temporary file used (without extension).
+    temp_specname = copy.deepcopy(mode)#The name of the temporary file used (without extension).
     #The spectrum will be named like this.fits There should be a this.par file as well,
     #that contains a line pointing molecfit to this.fits:
     parname=temp_specname+'.par'
@@ -48,7 +49,7 @@ def do_molecfit(headers,spectra,load_previous=False):
     if os.path.isdir(molecfit_prog_root) != True:
         print('ERROR in prep_for_molecfit: '+molecfit_prog_root+' does not exist!')
         sys.exit()
-    if os.path.isfile(molecfit_input_root+temp_specname+'.par') != True:
+    if os.path.isfile(molecfit_input_root+parname) != True:
         print('ERROR in prep_for_molecfit: '+molecfit_input_root+temp_specname+'.par does not exist!')
         sys.exit()
     if os.path.isfile(molecfit_prog_root+'molecfit') != True:
@@ -77,7 +78,10 @@ def do_molecfit(headers,spectra,load_previous=False):
         list_of_trans = []
 
         middle_i = int(round(0.5*N))#We initialize molecfit on the middle spectrum of the time series.
-        write_file_to_molecfit(molecfit_input_root,temp_specname+'.fits',headers,spectra,middle_i)
+        write_file_to_molecfit(molecfit_input_root,temp_specname+'.fits',headers,spectra,middle_i,mode=mode)
+        print(molecfit_input_root)
+        print(temp_specname+'.fits')
+        print(headers[middle_i])
         execute_molecfit(molecfit_prog_root,molecfit_input_root+parname,gui=True)
         wl,fx,trans = retrieve_output_molecfit(molecfit_input_root+temp_specname)
         remove_output_molecfit(molecfit_input_root,temp_specname)
@@ -85,7 +89,7 @@ def do_molecfit(headers,spectra,load_previous=False):
         for i in range(N):#range(len(spectra)):
             print('Fitting spectrum %s from %s' % (i+1,len(spectra)))
             t1=ut.start()
-            write_file_to_molecfit(molecfit_input_root,temp_specname+'.fits',headers,spectra,i)
+            write_file_to_molecfit(molecfit_input_root,temp_specname+'.fits',headers,spectra,i,mode=mode)
             execute_molecfit(molecfit_prog_root,molecfit_input_root+parname,gui=False)
             wl,fx,trans = retrieve_output_molecfit(molecfit_input_root+temp_specname)
             remove_output_molecfit(molecfit_input_root,temp_specname)
@@ -103,12 +107,12 @@ def do_molecfit(headers,spectra,load_previous=False):
         print(to_do_manually)
         #CHECK THAT THIS FUNCIONALITY WORKS:
         for i in to_do_manually:
-            write_file_to_molecfit(molecfit_input_root,temp_specname+'.fits',headers,spectra,i)
+            write_file_to_molecfit(molecfit_input_root,temp_specname+'.fits',headers,spectra,int(i),mode=mode)
             execute_molecfit(molecfit_prog_root,molecfit_input_root+parname,gui=True)
             wl,fx,trans = retrieve_output_molecfit(molecfit_input_root+temp_specname)
-            list_of_wls[i] = wl*1000.0#Convert to nm.
-            list_of_fxc[i] = fxc
-            list_of_trans[i] = trans
+            list_of_wls[int(i)] = wl*1000.0#Convert to nm.
+            list_of_fxc[int(i)] = fxc
+            list_of_trans[int(i)] = trans
     return(list_of_wls,list_of_trans)
 
 
@@ -399,6 +403,7 @@ def remove_output_molecfit(path,name):
 def retrieve_output_molecfit(path):
     import astropy.io.fits as fits
     import os.path
+    import sys
     file = path+'_out_tac.fits'
     if os.path.isfile(file) != True:
         print('ERROR in retrieve_output_molecfit: '+file+' does not exist!')
@@ -423,7 +428,7 @@ def execute_molecfit(molecfit_prog_root,molecfit_input_file,gui=False):
         os.system(command)
     #python3 /Users/hoeijmakers/Molecfit/bin/molecfit_gui /Users/hoeijmakers/Molecfit/share/molecfit/spectra/cross_cor/test.par
 
-def write_file_to_molecfit(molecfit_file_root,name,headers,spectra,ii):
+def write_file_to_molecfit(molecfit_file_root,name,headers,spectra,ii,mode='HARPS'):
     """This is a wrapper for writing a spectrum from a list to molecfit format.
     name is the filename of the fits file that is the output.
     headers is the list of astropy header objects associated with the list of spectra
@@ -435,9 +440,20 @@ def write_file_to_molecfit(molecfit_file_root,name,headers,spectra,ii):
     import lib.functions as fun
     import lib.constants as const
     import numpy as np
-    spectrum = spectra[ii]
+    import ut
+    ut.typetest('ii write_file_to_molecfit',ii,int)
+    spectrum = spectra[int(ii)]
     npx = len(spectrum)
-    berv = headers[ii]['HIERARCH ESO DRS BERV']*1000.0#Need to un-correct the s1d spectra to go back to the frame of the Earths atmosphere.
+
+    if mode == 'HARPS':
+        bervkeyword = 'HIERARCH ESO DRS BERV'
+
+    if mode == 'HARPSN':
+        bervkeyword = 'HIERARCH TNG DRS BERV'
+
+
+
+    berv = headers[ii][bervkeyword]*1000.0#Need to un-correct the s1d spectra to go back to the frame of the Earths atmosphere.
     wave = (headers[ii]['CDELT1']*fun.findgen(len(spectra[ii]))+headers[ii]['CRVAL1'])*(1.0-berv/const.c)
     #at the end, when the transmission spectrum is corrected, we stay in the barycentric frame because these will be used to
     #correct the e2ds spectra which are not yet berv-corrected.
