@@ -79,7 +79,7 @@ def xcor(list_of_wls,list_of_orders,wlm,fxm,drv,RVrange,NaN=None,verticalmask=No
             wl=list_of_wls[j]
             order=list_of_orders[j]
 
-            T_i=scipy.interpolate.interp1d(wlms[(wlms >= np.min(wl)-10.0) & (wlms <= np.max(wl)+10.0)],fxm[(wlms >= np.min(wl)-10.0) & (wlms <= np.max(wl)+10.0)])
+            T_i=scipy.interpolate.interp1d(wlms[(wlms >= np.min(wl)-10.0) & (wlms <= np.max(wl)+10.0)],fxm[(wlms >= np.min(wl)-10.0) & (wlms <= np.max(wl)+10.0)],bounds_error=False,fill_value=0.0)
             T = T_i(wl)
             T_matrix=fun.rebinreform(T,n_exp)
             CCF[:,i]+=np.nansum(T_matrix*order,1)
@@ -327,7 +327,11 @@ def plot_XCOR(list_of_wls,list_of_orders,wlm,fxm,RV,CCF,Tsums,dp,CCF_E=None,dv=1
                 sys.exit()
 
 
-    fig, (a0,a1,a2) = plt.subplots(3,1,gridspec_kw = {'height_ratios':[1,1,1]},figsize=(10,7))
+    # fig, (a0,a2) = plt.subplots(2,1,gridspec_kw = {'height_ratios':[1.0/3,2.0/3]},figsize=(10,7))
+    fig=plt.figure(figsize=(10,7))
+    a0 = plt.axes([0.05, 0.6, 0.9, 0.35])
+    a2 = plt.axes([0.05, 0.05, 0.4, 0.5])
+    a3 = plt.axes([0.55, 0.05, 0.4, 0.5])
     a02 = a0.twinx()
     for i in range(N):
         meanspec=np.nanmean(list_of_orders[i],axis=0)
@@ -340,17 +344,24 @@ def plot_XCOR(list_of_wls,list_of_orders,wlm,fxm,RV,CCF,Tsums,dp,CCF_E=None,dv=1
         # T_plot/=np.median(T_plot)
         a02.plot(meanwl,T,color='orange',alpha=0.3)
         a0.plot(meanwl,meanspec,alpha=0.5)
-    a1.plot(RV,Tsums,'.')
+    # a1.plot(RV,Tsums,'.')
 
     transit = sp.transit(dp)
     sel = (transit == 1.0)
     n_exp_out_of_transit = len(np.where(transit == 1)[0])
+
+
+    for i in range(0,n_exp):
+        a2.plot(RV,CCF[i,:],'.',color='gray',alpha=0.2)
 
     CCF1D = np.mean(CCF[sel,:],axis=0)
     if len(np.shape(CCF_E)) > 0:
         a2.errorbar(RV,CCF1D,fmt='.',yerr=np.mean(np.sqrt(CCF_E),axis=0)/np.sqrt(n_exp_out_of_transit),zorder=3)
     else:
         a2.plot(RV,CCF1D,'.')
+
+
+
 
     maxindex = (abs(CCF1D-np.nanmedian(CCF1D))).argmax()
     RV_0 = RV[maxindex]
@@ -362,11 +373,11 @@ def plot_XCOR(list_of_wls,list_of_orders,wlm,fxm,RV,CCF,Tsums,dp,CCF_E=None,dv=1
     a2.plot(RV[tuple(sel)],fun.gaussian(RV[tuple(sel)],fit[0],fit[1],fit[2],cont=fit[3]))
     a2.text(fit[1]+dv/2,fit[3]+fit[0],'RV = %s km/s' % round(fit[1],3),color='green')
     a0.set_title('t-averaged data and template')
-    a1.set_title('Sum(T)')
+    # a1.set_title('Sum(T)')
     a2.set_title('t-averaged CCF')
     a0.tick_params(axis='both',labelsize='5')
     a02.tick_params(axis='both',labelsize='5')
-    a1.tick_params(axis='both',labelsize='5')
+    # a1.tick_params(axis='both',labelsize='5')
     a2.tick_params(axis='both',labelsize='5')
     fig.tight_layout()
     plt.show()
@@ -400,7 +411,7 @@ def plot_RV_star(dp,RV,CCF2D,RVrange=[]):
     plt.show()
 
 
-def construct_KpVsys(rv,ccf,dp,kprange=[0,300],dkp=1.0):
+def construct_KpVsys(rv,ccf,ccf_e,dp,kprange=[0,300],dkp=1.0):
     """The name says it all. Do good tests."""
     import lib.functions as fun
     import lib.operations as ops
@@ -414,6 +425,7 @@ def construct_KpVsys(rv,ccf,dp,kprange=[0,300],dkp=1.0):
     Kp = fun.findgen((kprange[1]-kprange[0])/dkp+1)*dkp+kprange[0]
     n_exp = np.shape(ccf)[0]
     KpVsys = np.zeros((len(Kp),len(rv)))
+    KpVsys_e = np.zeros((len(Kp),len(rv)))
     transit = sp.transit(dp)-1.0
     transit /= np.nansum(transit)
     transitblock = fun.rebinreform(transit,len(rv)).T
@@ -423,12 +435,17 @@ def construct_KpVsys(rv,ccf,dp,kprange=[0,300],dkp=1.0):
     for i in Kp:
         dRV = sp.RV(dp,vorb=i)*(-1.0)
         ccf_shifted = ops.shift_ccf(rv,ccf,dRV)
+        ccf_e_shifted = ops.shift_ccf(rv,ccf_e,dRV)
         ccfs.append(ccf_shifted)
         KpVsys[j,:] = np.nansum(transitblock * ccf_shifted,axis=0)
+        KpVsys_e[j,:] = (np.nansum((transitblock*ccf_e_shifted)**2.0,axis=0))**0.5
+        # plt.plot(rv,KpVsys[j,:])
+        # plt.fill_between(rv, KpVsys[j,:]-KpVsys_e[j,:], KpVsys[j,:]+KpVsys_e[j,:],alpha=0.5)
+        # plt.show()
+        # pdb.set_trace()
         j+=1
         ut.statusbar(i,Kp)
-    ut.save_stack('test.fits',ccfs)
-    return(Kp,KpVsys)
+    return(Kp,KpVsys,KpVsys_e)
 
 
 
@@ -545,7 +562,7 @@ class KpVsys_callback(object):
         self.vorb=vorb
 
 
-def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],yrange=[0,0],Nxticks = 10.0,Nyticks = 10.0,title='',invert=False):
+def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],yrange=[0,0],Nxticks = 10.0,Nyticks = 10.0,title='',invert=False,injected=[0],filter=False):
     """This is a routine that does all the plotting of the KpVsys diagram.
     I expect this to be an organic function that is adapted to my plotting needs.
     THIS CURRENTLY HAS CORE USAGE IN RUN_INSTANCE, DO GOOD TESTS AND WRITE GOOD
@@ -560,8 +577,10 @@ def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],yrange=[0,0],Nxticks = 10.0,Ny
     import lib.functions as fun
     import lib.system_parameters as sp
     import lib.plotting as fancyplots
+    import lib.operations as ops
     from matplotlib.widgets import Slider
     import math
+    import sys
 
     if invert == True:
         KpVsys*=(-1.0)
@@ -586,6 +605,7 @@ def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],yrange=[0,0],Nxticks = 10.0,Ny
     line1, = ax[0].plot(rv,rv*0.0+vorb,'--',color='black',label='Orbital velocity')
     line2, = ax[0].plot(Kp*0.0+vsys,Kp,'--',color='black',label='Systemic velocity')
     line3, = ax[0].plot(rv,rv*0.0+vorb_sel,'--',color='gray',label='Orbital velocity (selected)')
+
     ax[0].set_xticks(xticks)
     ax[0].set_yticks(yticks)
     ax[0].set_title(title)
@@ -596,8 +616,24 @@ def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],yrange=[0,0],Nxticks = 10.0,Ny
 
     vorb_index = np.argmin(np.abs(Kp - vorb_sel))
 
-    CCF1D = KpVsys[vorb_index,:]
+
+
+    if filter == True:
+        CCF_smooth = ops.smooth(KpVsys[vorb_index,:],50.0)
+        CCF1D = KpVsys[vorb_index,:]-CCF_smooth
+    else:
+        CCF1D = KpVsys[vorb_index,:]
+
     img2=ax[1].plot(rv,CCF1D)
+    # ax[1].plot(rv,CCF_smooth)
+    sel=(np.abs(rv) > 50.0)
+
+    threesigma = np.std(CCF1D[sel])*3.0+np.mean(CCF1D[sel])
+    line4,=ax[1].plot([np.min(rv),np.max(rv)],threesigma*np.array([1.0,1.0]),color='green',alpha=0.5)
+
+    if len(injected) != 1:
+        CCF1D_i = injected[vorb_index,:]
+        img2_i = ax[1].plot(rv,CCF1D_i-CCF1D,'--')
     ax[1].axvline(vsys,color='black')
     ax[1].set_xlim(x2.min(),x2.max())
     ax[1].set_ylim(z.min(),z.max())
@@ -622,9 +658,21 @@ def plot_KpVsys(rv,Kp,KpVsys,dp,xrange=[-100,100],yrange=[0,0],Nxticks = 10.0,Ny
     def update(val):
         vorb_sel = vorb_slider.val
         vorb_index = np.argmin(np.abs(Kp - vorb_sel))
-        CCF1D = KpVsys[vorb_index,:]
+
+        if filter == True:
+            CCF_smooth = ops.smooth(KpVsys[vorb_index,:],50.0)
+            CCF1D = KpVsys[vorb_index,:]-CCF_smooth
+        else:
+            CCF1D = KpVsys[vorb_index,:]
+
         img2[0].set_ydata(CCF1D)
+        if len(injected) != 1:
+            CCF1D_i = injected[vorb_index,:]
+            img2_i[0].set_ydata(CCF1D_i-CCF1D)
         line3.set_ydata(vorb_sel)
+
+        threesigma = np.std(CCF1D[sel])*3.0+np.mean(CCF1D[sel])
+        line4.set_ydata(threesigma*np.array([1.0,1.0]))
         #ax[1].autoscale(enable=True,axis='y')
         #ylim = ax[1].get_ylim()
         #dylim = 10.0**np.max([math.floor(np.log10(ylim[0])),math.floor(np.log10(ylim[1]))])

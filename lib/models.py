@@ -105,7 +105,33 @@ def get_model(name,library='models/library'):
 
 
 
-def inject_model(wld,order,dp,modelname,model_library='library/models'):
+
+def inject_model(list_of_wls,list_of_orders,dp,modelname,model_library='library/models'):
+    """This function wraps the inject_model_into_order function below, which
+    I had written first, and works on an individual order."""
+    import sys
+    import lib.utils as ut
+    N = len(list_of_wls)
+    if N != len(list_of_orders):
+        print('ERROR in inject_model: List_of_wls and list_of_orders are not of the same length (%s vs %s)' % (N,len(list_of_orders)))
+        sys.exit()
+    list_of_orders_injected=[]
+    for i in range(N):
+            list_of_orders_injected.append(inject_model_into_order(list_of_wls[i],list_of_orders[i],dp,modelname,model_library))
+            ut.statusbar(i,N)
+            # ut.writefits('test.fits',list_of_orders_injected[i]/list_of_orders[i])
+            # sys.exit()
+    return(list_of_orders_injected)
+
+
+
+
+
+
+
+
+
+def inject_model_into_order(wld,order,dp,modelname,model_library='library/models'):
     """This function takes a spectral order and injects a model with library
     identifier modelname, and system parameters as defined in dp.
     Maybe it would be more efficient to provide wlm and fxm from outside this
@@ -118,17 +144,14 @@ def inject_model(wld,order,dp,modelname,model_library='library/models'):
     import lib.models
     import lib.constants as const
     import numpy as np
-    #import matplotlib.pyplot as plt
     import scipy
     import lib.operations as ops
-    #from astropy.io import fits
-    #import pdb
+    import pdb
+    import matplotlib.pyplot as plt
 
     ut.dimtest(order,[0,len(wld)])
     ut.typetest('dp in inject_model',dp,str)
     ut.typetest('modelname in inject_model',modelname,str)
-    #ut.typetest('wlm in inject_model',wlm,np.array)
-    #ut.dimtest(wlm,[len(fxm)])
     ut.typetest('modelname in inject_model',dp,str)
 
     Rd=sp.paramget('resolution',dp)
@@ -136,10 +159,7 @@ def inject_model(wld,order,dp,modelname,model_library='library/models'):
     inclination=sp.paramget('inclination',dp)
     P=sp.paramget('P',dp)
 
-    #t1=ut.start()
     wlm,fxm=get_model(modelname,library=model_library)
-    #t2=ut.end(t1)
-    #pdb.set_trace()
 
     if wlm[-1] <= wlm[0]:#Reverse the wl axis if its sorted the wrong way.
         wlm=np.flipud(wlm)
@@ -150,17 +170,20 @@ def inject_model(wld,order,dp,modelname,model_library='library/models'):
     #A larger wavelength range would take much extra time because the convolution
     #is a slow operation.
     if np.min(wlm) > np.min(wld)-1.0 or np.max(wlm) < np.max(wld)+1.0:
-        raise Exception('ERRROR in model injection: Data grid falls (partly) outside of model range.')
+        print('WARNING in model injection: Data grid falls (partly) outside of model range.')
+        print('Setting missing area to 1.0.')
 
     modelsel=[(wlm >= np.min(wld)-1.0) & (wlm <= np.max(wld)+1.0)]
 
-    wlm=wlm[modelsel]
-    fxm=fxm[modelsel]
+    wlm=wlm[tuple(modelsel)]
+    fxm=fxm[tuple(modelsel)]
 
     shape=np.shape(order)
     n_exp=shape[0]
     transit=sp.transit(dp)
-    rv=sp.RV(dp)
+    vsys=sp.paramget('vsys',dp)
+    rv=sp.RV(dp)+vsys
+
     dRV=sp.dRV(dp)
     phi=sp.phase(dp)
     ut.dimtest(transit,[n_exp])
@@ -171,57 +194,33 @@ def inject_model(wld,order,dp,modelname,model_library='library/models'):
     mask=(transit-1.0)/(np.min(transit-1.0))
 
     injection=order*0.0
-    #injection_rot_only=order*0.0
-    #injection_pure=order*0.0
-    #t1=ut.start()
+    # injection_total = order*0.0
+    # injection_pure = order*0.0
+    # injection_rot_only = order*0.0
     fxm_b=ops.blur_rotate(wlm,fxm,(const.c/1000.0)/Rd,planet_radius,P,inclination)
-    #t2=ut.end(t1)
-    #print('...in blur rotate.')
-
 
     wlm_cv,fxm_bcv,vstep=ops.constant_velocity_wl_grid(wlm,fxm_b,oversampling=1.5)
-    print('v_step is %s km/s' % vstep)
-    print('So the exp-time blurkernel has an avg width of %s px.' % (np.mean(dRV)/vstep))
-    #t3=ut.start()
-    #test=fxm_cv*0.0
-    #test[[1000,2000,3000,4000]]=1.0
-    #fxm_b2=ops.smooth(fxm_cv,np.mean(dRV)/vstep,mode='box')
-    #t4=ut.end(t3)
-
-    #plt.plot(wlm_cv,test)
-    #plt.plot(wlm_cv,fxm_b2)
-    #plt.show()
-    #print('...in smooth.')
-
-
-    #t5=ut.start()
-    #fxm_b2=ops.blur_spec(wlm,fxm_b,np.mean(dRV),mode='box')
-    #t6=ut.end(t5)
-    #print('...in blur_spec.')
-    #THIS TAKES 1.4 SECONDS FOR 29k POINTS.
-    #THAT IS MUCH TOO SLOW BECAUSE IT NEEDS TO BE DONE INSIDE THE FORLOOP.
-    #WOULD TAKE OVER 1M PER ORDER.
-    #INSTEAD, I SHOULD AT THIS POINT PROBABLY CHOOSE TO INTERPOLATE THE MODEL
-    #TO AN OVERSAMPLED CONSTANT-VELOCITY WL GRID, AND USE A BUILTIN CONVOLUTION
-    #FUNCTION WITH A CONSTANT-SIZED BOX. THE DOWNSIDE OF THE BUILTIN CONVOLUTIOn
-    #OPERATOR IS THAT IT SCREWS UP THE EDGES, BUT THE MODEL IS CROPPED QUITE
-    #WIDELY AROUND THE DATA ANYWAY...
-
+    # print('v_step is %s km/s' % vstep)
+    # print('So the exp-time blurkernel has an avg width of %s px.' % (np.mean(dRV)/vstep))
 
     for i in range(0,n_exp):
         fxm_b2=ops.smooth(fxm_bcv,dRV[i]/vstep,mode='box')
         shift=(1.0+rv[i]/(const.c/1000.0))
-        fxm_i=scipy.interpolate.interp1d(wlm_cv*shift,fxm_b2) #This is a class that can be called.
-        injection[i,:]=fxm_i(wld)
-        #injection_rot_only[i,:]=scipy.interpolate.interp1d(wlm*shift,fxm_b)(wld)
-        #injection_pure[i,:]=scipy.interpolate.interp1d(wlm*shift,fxm)(wld)
-    #fits.writeto('test.fits',injection,overwrite=True)
+        fxm_i=scipy.interpolate.interp1d(wlm_cv*shift,fxm_b2,fill_value=1.0,bounds_error=False) #This is a class that can be called.
+        #Fill_value = 1 because if the model does not fully cover the order, it will be padded with 1.0s,
+        #assuming that we are dealing with a model that is in transmission.
 
-    #plt.plot(wld,injection_pure[15,:])
-    #plt.plot(wld,injection_rot_only[15,:])
-    #plt.plot(wld,injection[15,:])
-    #plt.show()
-    #pdb.set_trace()
+        injection[i,:]=1.0+mask[i]*(fxm_i(wld)-1.0)#This assumes that the model is in transit radii.
+
+        #These are for checking that the broadening worked as expected:
+        # injection_total[i,:]= scipy.interpolate.interp1d(wlm_cv*shift,fxm_b2)(wld)
+        # injection_rot_only[i,:]=scipy.interpolate.interp1d(wlm*shift,fxm_b)(wld)
+        # injection_pure[i,:]=scipy.interpolate.interp1d(wlm*shift,fxm)(wld)
+
+    # ut.save_stack('test.fits',[injection_pure,injection_rot_only,injection_total])
+    # pdb.set_trace()
+    # ut.writefits('test.fits',injection)
+    # pdb.set_trace()
     return(injection*order)
 
 
@@ -277,11 +276,11 @@ def build_template(templatename,binsize=1.0,maxfrac=0.01,mode='top',resolution=0
     # plt.plot(wlt,T)
     # plt.show()
     if resolution !=0.0:
-        print('ADD BLURRING OF TEMPLATE')
         dRV = c/resolution
+        print('------Blurring template to resolution fo data (%s, %s km/s)' % (round(resolution,0),round(dRV,2)))
         wlt_cv,T_cv,vstep=ops.constant_velocity_wl_grid(wlt,T,oversampling=2.0)
-        print('v_step is %s km/s' % vstep)
-        print('So the resolution blurkernel has an avg width of %s px.' % (dRV/vstep))
+        print('---------v_step is %s km/s' % vstep)
+        print('---------So the resolution blurkernel has an avg width of %s px.' % (dRV/vstep))
         T_b=ops.smooth(T_cv,dRV/vstep,mode='gaussian')
         wlt = wlt_cv*1.0
         T = T_b*1.0
@@ -419,3 +418,61 @@ def read_binary_model_daniel(inpath):
             r.append(struct.unpack('d',seq))
     f.close()
     return(r)
+
+def create_random_comb():
+    import numpy as np
+    import numpy.random as npr
+    import lib.constants as consts
+    import lib.functions as fun
+    import matplotlib.pyplot as plt
+    import pdb
+    import lib.utils as ut
+
+    minwl = 300.0
+    maxwl = 1000.0
+
+    white_light_transit_depth  = 0.01
+    linedepth = 0.005
+    nlines = 500.0
+    path = 'models/uniform_comb_500l_0.5percent.fits'
+
+
+
+    #=========================================================================
+    #=========================================================================
+    #=========================================================================
+    #=========================================================================
+
+
+    c=consts.c/1000.0
+    dv=0.1#km/s
+
+    wl_new = [-1.0]
+    n = 50000.0
+    while (np.max(wl_new) <= maxwl):
+        x=fun.findgen(n)
+        wl_new=np.exp(dv/c * x)*minwl
+        n+=50000.0
+
+    wlt=wl_new[(wl_new <= maxwl)]
+
+    fxt=wlt*0.0+1.0-white_light_transit_depth
+
+    if nlines >= 0.5*len(wlt):
+        print('ERROR: Number of lines is greater than half the number of pixels.')
+
+
+    fxt[0:int(nlines)] -= linedepth
+
+    fxt = npr.permutation(fxt)#Randomly permute the lines.
+    #No more drawing from a uniform random distribution, sampling on the wl grid and worrying about overlapping lines!
+
+    plt.plot(wlt,fxt)
+    plt.show()
+
+    output = np.zeros((2,len(wlt)))
+    output[0]=wlt
+    output[1]=fxt
+    ut.writefits(path,output)
+    print('Output written. Add the following line to the library file')
+    print('comb_500_0.5     '+path+'     3000000.0')

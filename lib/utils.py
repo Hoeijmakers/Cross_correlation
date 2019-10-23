@@ -11,7 +11,10 @@ def path(dp):
     return(dp)
 
 def statusbar(i,x):
-    print('  '+f"{i/(len(x)-1)*100:.1f} %", end="\r")#Statusbar.
+    if type(x) == int:
+        print('  '+f"{i/(float(x)-1)*100:.1f} %", end="\r")
+    else:
+        print('  '+f"{i/(len(x)-1)*100:.1f} %", end="\r")#Statusbar.
 
 def start():
     import time

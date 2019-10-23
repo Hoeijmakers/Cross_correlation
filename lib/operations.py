@@ -64,7 +64,7 @@ def envelope(wlm,fxm,binsize,selfrac=0.05,mode='top',threshold=''):
     # t3=ut.start()
     i_start=0
     wlm_start=wlm[i_start]
-    for i in range(0,len(wlm)):
+    for i in range(0,len(wlm)-1):
         if wlm[i]-wlm_start >= binsize:
             wlsel = wlm[i_start:i]
             fxsel = fxm[i_start:i]
@@ -72,6 +72,7 @@ def envelope(wlm,fxm,binsize,selfrac=0.05,mode='top',threshold=''):
             wlcs=np.append(wlcs,np.mean(wlsel[maxsel]))
             fxcs=np.append(fxcs,np.mean(fxsel[maxsel]))
             i_start=i+1
+            # print(len(wlm),i)
             wlm_start=wlm[i+1]
 
     if isinstance(threshold,float) == True:
@@ -294,7 +295,7 @@ def constant_velocity_wl_grid(wl,fx,oversampling=1.0):
     return(wl_new_cropped,fx_new_cropped,a)
 
 
-def blur_rotate(wl,order,dv,Rp,P,inclination):
+def blur_rotate(wl,order,dv,Rp,P,inclination,status=False):
     """This function takes a spectrum and blurs it using a rotation x Gaussian
     kernel which has a FWHM width of dv km/s everywhere. Meaning that its width changes
     dynamically.
@@ -389,7 +390,8 @@ def blur_rotate(wl,order,dv,Rp,P,inclination):
         lsf_wl=i_wl(wlbin)
         k_n=lsf_wl/np.sum(lsf_wl)#Normalize at each instance of the interpolation to make sure flux is conserved exactly.
         order_blurred[i]=np.sum(k_n*order[binstart:binend])
-
+        if status == True:
+            ut.statusbar(i,len(wl))
     return order_blurred
 
 
