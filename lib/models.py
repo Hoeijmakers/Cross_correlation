@@ -363,7 +363,8 @@ def convert_models_daniel(infolder,Rstar,outfolder,prefix):
     """This code reads daniels model spectra from a folder. Daniel formats his templates
     such that each element has its own subfolder, and this is what is assumed.
     So infolder is the root that contains all the folders of the elements, each of
-    which contains a binary file that is converted by the function below."""
+    which contains a binary file that is converted by the function below.
+    IF IT IS NOT ORGANISED IN SUBFOLDERS, USE THE ROUTINE BELOW."""
 
     import os
     import os.path
@@ -393,15 +394,58 @@ def convert_models_daniel(infolder,Rstar,outfolder,prefix):
             ut.writefits(outfolder+'/'+prefix+templates[i]+'.fits',out)
         print('%s / %s' % (i,N))
 
+def convert_models_daniel_nosubfolder(infolder,Rstar,outfolder,prefix,double=True):
+    """This code reads daniels model spectra from a folder the same as above
+    but without a subfolder for each element. The spectral_grid file is assumed to be
+    one folder above the binary files."""
+
+    import os
+    import os.path
+    import astropy.io.ascii as ascii
+    import lib.constants as const
+    import numpy as np
+    import lib.utils as ut
+    import sys
+    import pdb
+    import glob
+    import matplotlib.pyplot as plt
+    if os.path.isdir(outfolder) == False:
+        os.makedirs(outfolder)
+    Rs = Rstar*const.Rsun/1000.0 #km
+    templates = os.listdir(infolder)
+    grid = ascii.read(infolder+'../spectral_grid.dat')
+    wl = grid['col1'].data*1000.0
+    out = np.zeros((2,len(wl)))
+    out[0,:] = wl
+    N = len(templates)
+
+    for i in range(N):
+        path = infolder+templates[i]
+        outname = templates[i].split('.')[0]
+        print('%s / %s, reading: %s' % (i,N,path))
+        if templates[i].split('.')[-1] == 'dat' and len(templates[i].split('.')) == 2:
+            R = np.array(read_binary_model_daniel(path,double=double))/Rs # in km.
+            out[1,:] = 1.0-np.squeeze(R*R)
+            ut.writefits(outfolder+'/'+prefix+outname+'.fits',out)
 
 
-def read_binary_model_daniel(inpath):
+
+
+
+def read_binary_model_daniel(inpath,double=True):
     """This reads a binary model spectrum (those created by Daniel Kitzmann)
     located at path inpath."""
     import pdb
     import struct
     import lib.utils as ut
     import sys
+    if double == True:
+        nbytes = 8
+        tag = 'd'
+    else:
+        nbytes = 4
+        tag = 'f'
+
     ut.typetest('inpath in read_binary_model_daniel',inpath,str)
 
     r = []
@@ -411,11 +455,11 @@ def read_binary_model_daniel(inpath):
         print('ERROR in read_binary_model_daniel: file %s not found.' % inpath)
         sys.exit()
     while True:
-        seq = f.read(8)
+        seq = f.read(nbytes)
         if not seq:
             break
         else:
-            r.append(struct.unpack('d',seq))
+            r.append(struct.unpack(tag,seq))
     f.close()
     return(r)
 
