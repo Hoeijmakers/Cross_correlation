@@ -479,7 +479,6 @@ def airtovac(wlnm):
 
 def vactoair(wlnm):
     wlA = wlnm*10.0
-
     s = 1e4/wlA
     f = 1.0 + 5.792105e-2/(238.0185e0 - s**2) + 1.67917e-3/( 57.362e0 - s**2)
     return(wlA/f/10.0)
