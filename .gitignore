@@ -18,3 +18,5 @@ output/*.atm
 *.pkl
 lib/__pycache__/*
 *.dat
+output/Wasp-121/*
+output/Wasp-121/night1/*

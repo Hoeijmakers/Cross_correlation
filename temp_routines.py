@@ -1,3 +1,108 @@
+def sector_14():
+    import matplotlib.pyplot as plt
+    import astropy.io.fits as fits
+    import lib.utils as ut
+    import numpy as np
+    import lib.operations as ops
+    import scipy.interpolate as interpolate
+    p = 'Sector_14.fits'
+
+    hdu=fits.open(p)
+    img=hdu[1].data['FLUX']
+    time=hdu[1].data['TIME']
+
+    xc = 8-1
+    yc = 6-1
+
+    dpx = 1
+    dt = 0.4
+
+    period = 1.4811235
+
+
+    print(type(img))
+
+    # plt.plot(img[:,xc,yc])
+
+    lc1 = []
+    lc2 = []
+    lc3 = []
+    lc4 = []
+    t1 = []
+    t2 = []
+    t3 = []
+    t4 =[]
+
+    for i in range(len(time)):
+        if time[i] < 1692.23:
+            lc1.append(np.sum(img[i,xc-1:xc+1,yc-1:yc+1]))
+            t1.append(time[i])
+        if time[i] > 1694.21 and time[i] < 1696.35:
+            lc2.append(np.sum(img[i,xc-1:xc+1,yc-1:yc+1]))
+            t2.append(time[i])
+        if time[i] > 1697.66 and time[i] < 1706.41:
+            lc3.append(np.sum(img[i,xc-1:xc+1,yc-1:yc+1]))
+            t3.append(time[i])
+        if time[i] > 1708.29:
+            lc4.append(np.sum(img[i,xc-1:xc+1,yc-1:yc+1]))
+            t4.append(time[i])
+
+
+    plt.plot(t1,lc1,color='blue')
+    plt.plot(t2,lc2,color='blue')
+    plt.plot(t3,lc3,color='blue')
+    plt.plot(t4,lc4,color='blue')
+
+    tb1,eb1=ops.envelope(np.array(t1),np.array(lc1),dt,selfrac=0.8,mode='top')#Bins of the envelope
+    tb2,eb2=ops.envelope(np.array(t2),np.array(lc2),dt,selfrac=0.8,mode='top')
+    tb3,eb3=ops.envelope(np.array(t3),np.array(lc3),dt,selfrac=0.8,mode='top')
+    tb4,eb4=ops.envelope(np.array(t4),np.array(lc4),dt,selfrac=0.8,mode='top')
+
+    e1 = interpolate.interp1d(tb1,eb1,fill_value='extrapolate')(t1)
+    e2 = interpolate.interp1d(tb2,eb2,fill_value='extrapolate')(t2)
+    e3 = interpolate.interp1d(tb3,eb3,fill_value='extrapolate')(t3)
+    e4 = interpolate.interp1d(tb4,eb4,fill_value='extrapolate')(t4)
+
+
+    plt.plot(t1,e1,color='red')
+    plt.plot(t2,e2,color='red')
+    plt.plot(t3,e3,color='red')
+    plt.plot(t4,e4,color='red')
+    plt.xlabel('Time (days)')
+    plt.ylabel('Raw flux')
+    plt.show()
+    fxn1 = np.array(lc1/e1)
+    fxn2 = np.array(lc2/e2)
+    fxn3 = np.array(lc3/e3)
+    fxn4 = np.array(lc4/e4)
+
+    # plt.plot(t1,fxn1)
+    # plt.plot(t2,fxn2)
+    # plt.plot(t3,fxn3)
+    # plt.plot(t4,fxn4)
+    # plt.show()
+    tc = np.concatenate((t1,t2,t3,t4))
+    fxc = np.concatenate((fxn1,fxn2,fxn3,fxn4))
+
+
+    sel = (fxc > 0.95)
+
+    tc2 = tc[(fxc >0.95)]
+    fx2 = fxc[(fxc >0.95)]
+
+    print(len(tc))
+    print(len(fx2))
+
+
+    phase = (tc2 % period)/period -0.6
+    phase[(phase < -0.5)]+=1
+    plt.plot(phase,fx2,'.',alpha=0.5)
+    plt.axhline(1.0)
+    plt.xlabel('Orbital phase')
+    plt.ylabel('Normalized flux')
+    plt.show()
+    # ut.writefits('test.fits',img)
+sector_14()
 
 def plot_KpVsyses_Wasp_121():
     import astropy.io.fits as fits
