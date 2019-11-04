@@ -379,7 +379,7 @@ def plot_XCOR(list_of_wls,list_of_orders,wlm,fxm,RV,CCF,Tsums,dp,CCF_E=None,dv=1
     a02.tick_params(axis='both',labelsize='5')
     # a1.tick_params(axis='both',labelsize='5')
     a2.tick_params(axis='both',labelsize='5')
-    fig.tight_layout()
+    # fig.tight_layout()
     plt.show()
 
 
