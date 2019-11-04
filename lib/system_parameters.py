@@ -142,12 +142,19 @@ def phase(dp):
     from astropy.io import ascii
     from astropy.time import Time
     from astropy import units as u, coordinates as coord
+    import lib.utils as ut
     typetest('dp',dp,str)
     d=ascii.read(dp+'obs_times',comment="#")#,names=['mjd','time','exptime','airmass'])
     #Removed the named columns because I may not know for sure how many columns
     #there are, and read-ascii breaks if only some columns are named.
     #The second column has to be a date array though.
-    t = Time(d['col2'],scale='utc', location=coord.EarthLocation.of_site('paranal'))
+    # t1=ut.start()
+    # t = Time(d['col2'],scale='utc', location=coord.EarthLocation.of_site('paranal'))# I determined that the difference between this and geodetic 0,0,0 is zero.
+    # ut.end(t1)
+    # t2=ut.start()
+    t = Time(d['col2'],scale='utc', location=coord.EarthLocation.from_geodetic(0,0,0))
+    # ut.end(t2)
+
     jd = t.jd
     P=paramget('P',dp)
     RA=paramget('RA',dp)
