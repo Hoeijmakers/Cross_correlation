@@ -38,7 +38,8 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
 #We start by defining constants, preparing for generating output.
     c=const.c/1000.0
     dp = 'data/'+dataname+'/'
-    outpath='output/'+dataname+'/'+templatename+'/'
+    libraryname=template_library.split('/')[-1]
+    outpath='output/'+dataname+'/'+libraryname+'/'+templatename+'/'
 
     if not os.path.exists(outpath):
         os.makedirs(outpath)
@@ -277,7 +278,6 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
         fitdv = sp.paramget('fitdv',dp)
         analysis.plot_XCOR(list_of_wls,list_of_orders,wlt,T,rv,ccf_cor,Tsums,dp,CCF_E=ccf_e_cor,dv=fitdv)
 
-    sys.exit()
     print('---Cleaning CCFs')
     ccf_n,ccf_ne,ccf_nn,ccf_nne = cleaning.clean_ccf(rv,ccf_cor,ccf_e_cor,dp)
     ut.writefits(outpath+'ccf_normalized.fits',ccf_nn)
@@ -306,7 +306,6 @@ def run_instance(dataname,modelname,templatename,shadowname,maskname,RVrange=500
         if inject_model == True:
             ccf_clean_i = ccf_nn_i*1.0
             matched_ds_model_i = ccf_clean_i*0.0
-
 
     ut.save_stack(outpath+'cleaning_steps.fits',[ccf,ccf_cor,ccf_nn,ccf_clean,matched_ds_model])
     ut.writefits(outpath+'ccf_cleaned.fits',ccf_clean)
